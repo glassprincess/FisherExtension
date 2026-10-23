@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Chess Bot Hint (Stockfish)",
+  "version": "0.2.4",
+  "description": "Стрелка лучшего хода Stockfish и подсказка фигуры при превращении. Сейфмод — только игры с ботами chess.com.",
+  "browser_specific_settings": {
+    "gecko": { "id": "chess-hint@local", "strict_min_version": "115.0" }
+  },
+  "permissions": ["nativeMessaging", "storage"],
+  "host_permissions": ["https://www.chess.com/*"],
+  "background": { "scripts": ["background.js"] },
+  "content_scripts": [
+    {
+      "matches": ["https://www.chess.com/*"],
+      "js": ["chess.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_popup": "popup.html", "default_title": "Chess Bot Hint" },
+  "options_ui": { "page": "popup.html", "open_in_tab": true }
+}

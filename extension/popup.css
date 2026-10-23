@@ -1,0 +1,19 @@
+:root { color-scheme: light dark; }
+body { font: 13px system-ui, sans-serif; width: 270px; margin: 10px; }
+h1 { font-size: 14px; margin: 0 0 2px; }
+.subtitle { margin: 0 0 10px; opacity: .72; }
+.version { font-size: 11px; font-weight: normal; opacity: .6; }
+.field { display: block; margin: 0 0 8px; }
+.field span { display: block; opacity: .72; margin: 0 0 3px; }
+.field.check { display: flex; gap: 6px; align-items: flex-start; margin-bottom: 2px; }
+.field.check input { margin: 2px 0 0; }
+.field.check span { display: inline; margin: 0; }
+.hint { margin: 0 0 8px; font-size: 11px; opacity: .6; }
+select {
+  width: 100%; box-sizing: border-box; padding: 4px 6px;
+  border: 1px solid #8886; border-radius: 6px;
+  background: #8881; color: inherit; font: inherit;
+}
+dl { margin: 10px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; }
+dt { opacity: .7; }
+dd { margin: 0; word-break: break-word; }

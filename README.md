@@ -1,0 +1,150 @@
+# ♞ FisherExtension
+
+[![version](https://img.shields.io/badge/version-0.2.4-2ea043?style=flat-square)](https://github.com/glassprincess/FisherExtension)
+[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Firefox%2FZen-1f6feb?style=flat-square)](https://github.com/glassprincess/FisherExtension)
+[![license](https://img.shields.io/badge/project%20license-MIT-yellow?style=flat-square)](LICENSE)
+
+**Подсказка лучшего хода Stockfish на chess.com.** Стрелка поверх доски, подсветка фигуры при превращении, настройки силы и режима поиска. Firefox / Zen, Windows.
+
+> [!WARNING]
+> Только для игр с ботами и тренировки. Не используйте в рейтинговых партиях и играх с людьми: это может нарушать правила Chess.com и привести к блокировке аккаунта. Проект не связан с Chess.com. Используйте на свой риск.
+
+## Что уже готово
+
+В репозитории лежат **готовые бинарники** — собирать ничего не нужно:
+
+| Файл | Что это |
+|---|---|
+| `bin\chess_hint_bridge.exe` | Native Messaging мост (Rust) |
+| `engine\stockfish.exe` | Официальный Stockfish 19 для Windows x64 |
+| `extension\` | Расширение Firefox / Zen |
+| `install\install.ps1` | Установка моста без прав администратора |
+
+Размер репозитория — около 100 МБ, почти всё занимает движок. GitHub может предупредить о большом файле — это нормально. Хеши бинарников лежат в [`SHA256SUMS.txt`](SHA256SUMS.txt).
+
+## Быстрый старт
+
+1. **Скачайте репозиторий** и распакуйте его в постоянную папку:
+   `Code → Download ZIP` или
+   ```powershell
+   git clone https://github.com/glassprincess/FisherExtension.git
+   ```
+2. **Установите мост** из корня папки:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File install\install.ps1
+   ```
+   Права администратора не нужны. Скрипт создаст `install\chess_hint_bridge.json` и зарегистрирует его в реестре.
+3. **Загрузите расширение:** в Firefox / Zen откройте `about:debugging` → «Этот Firefox» → «Загрузить временное дополнение» → выберите `extension\manifest.json`.
+4. **Откройте игру с ботом** на chess.com и нажмите F5. Когда ход ваш, появится стрелка.
+
+Если папку проекта переместить, запустите `install\install.ps1` заново: в манифесте хранятся абсолютные пути к мосту и движку. Копий в `%LOCALAPPDATA%` нет.
+
+> [!NOTE]
+> Временное расширение исчезает после перезапуска браузера. Для постоянной установки нужно подписать расширение или загружать его заново через `about:debugging`.
+
+## Использование
+
+- **Сейфмод** включён по умолчанию: расширение работает только на страницах игры с ботом `/play/computer/...`.
+- Выключите сейфмод в попапе, если хотите использовать его на других страницах chess.com, где есть доска и список ходов (разбор, онлайн-партии). Это экспериментальный режим.
+- **Режим движка** и **сила** настраиваются в попапе и в `about:addons` → «Настройки». Изменения применяются сразу.
+- **Строка «Страница»** показывает, что видит скрипт: `ход бота`, `считаю…`, `подсказка: …`, `ошибка разбора…`.
+- **Строка «Мост / движок»** может показывать `не запущен (запустится в игре)` — это нормально: процессы стартуют только при первой подсказке.
+
+### Режимы
+
+| Режим | low | medium | high | max |
+|---|---|---|---|---|
+| Время | 200 мс | 1 с | 3 с | 10 с |
+| Глубина | 5 | 10 | 15 | 20 |
+| Узлы | 10 тыс. | 100 тыс. | 500 тыс. | 1 млн |
+
+Сила (`Skill Level`): `full` = 20, `strong` = 15, `medium` = 10, `weak` = 5. По умолчанию: время `medium` (1 с), сила `full`.
+
+### Превращение
+
+Когда пешка доходит до последней горизонтали, на стрелке появляется бейдж `Q` / `R` / `B` / `N`, а в окне выбора фигуры chess.com подсвечивается рекомендованная фигура. Поддерживаются русская нотация (`c1=Ф`, `c1=Л`, `c1=С`, `c1=К`) и незавершённое превращение.
+
+### Ленивый мост
+
+Пока игры нет, `chess_hint_bridge.exe` и `stockfish.exe` не запущены. Они стартуют при первой подсказке и выгружаются после 15 секунд без игры, при уходе со страницы, закрытии вкладки или завершении партии. Открытие попапа или настроек процессы не запускает.
+
+## Если что-то не работает
+
+| Симптом | Что делать |
+|---|---|
+| `старый скрипт — обновите вкладку chess.com` | Нажмите F5 в игровой вкладке после перезагрузки расширения. |
+| `Мост: не запущен (запустится в игре)` | Это нормально до первой подсказки. Если через несколько секунд после вашего хода ошибка — запустите `install\install.ps1` заново. |
+| Нет стрелки | Проверьте, что открыта игра с ботом и сейфмод включён; обновите вкладку; проверьте строку «Страница». |
+| `не удалось запустить движок` | Убедитесь, что `engine\stockfish.exe` существует и не удалён антивирусом. |
+| Переместили папку | Запустите `install\install.ps1` заново. |
+
+## Сборка своими руками
+
+### Мост
+
+Нужен [Rust](https://rustup.rs/):
+
+```powershell
+cd bridge
+cargo test
+cargo build --release
+Copy-Item target\release\chess_hint_bridge.exe ..\bin\chess_hint_bridge.exe
+```
+
+В мосте нет внешних crates — только стандартная библиотека.
+
+### Stockfish
+
+В репозитории уже лежит официальный **Stockfish 19** для Windows x64. Его можно заменить любой свежей официальной сборкой:
+
+- исходники и релизы: <https://github.com/official-stockfish/Stockfish>
+- релиз `sf_19`: <https://github.com/official-stockfish/Stockfish/releases/tag/sf_19>
+- инструкция по сборке: <https://github.com/official-stockfish/Stockfish/wiki/Compiling-from-source>
+- скачать готовые сборки: <https://stockfishchess.org/download/>
+
+Положите новый `stockfish.exe` в `engine\` поверх старого. Соответствующие исходники Stockfish 19 лежат в `engine\stockfish-19-source.zip`; лицензия — GPLv3, текст в `engine\Copying.txt`.
+
+## Как это устроено
+
+```
+chess.com (content.js)  →  background.js  →  Native Messaging  →  chess_hint_bridge.exe  →  stockfish.exe
+ читает ходы и рисует       настройки,          stdin/stdout          проверяет вход, UCI       движок
+ стрелку                    ленивый мост
+```
+
+- Content script читает SAN-ходы из `wc-simple-move-list` / `wc-move-list`, проверяет их встроенным `chess.js` и рисует SVG-стрелку.
+- Background держит native-порт, пока идёт игра, и закрывает его после 15 секунд тишины.
+- Мост принимает только проверенные UCI-токены, режимы `time`/`depth`/`nodes` и `Skill Level` 0–20. Сетевых портов он не открывает.
+
+## Тесты
+
+```powershell
+node tests/chess.test.js
+node tests/background.test.js
+node tests/bridge_smoke.js
+node tests/content.test.js   # нужен Playwright
+cd bridge; cargo test
+```
+
+`content.test.js` использует сохранённые фрагменты реальной разметки chess.com из `tests/fixtures/`. Если Playwright установлен отдельно, укажите `PLAYWRIGHT_DIR`; для системного Chrome/Edge — `CHROMIUM_PATH`.
+
+## Структура
+
+```
+extension\      Firefox/Zen WebExtension (manifest, content, background, popup)
+bridge\         Rust Native Messaging мост
+bin\            готовый chess_hint_bridge.exe
+engine\         готовый Stockfish 19 + исходники + GPLv3
+install\        установка, удаление, пример engine_options
+tests\          Node-тесты и Playwright-тест
+```
+
+Необязательные UCI-опции Stockfish: скопируйте `install\engine_options.example.txt` в `bin\engine_options.txt` и раскомментируйте нужное (`Threads=`, `Hash=`). `Skill Level` лучше не задавать там — расширение выставляет его само.
+
+## Лицензии
+
+- Код расширения, моста и тестов — MIT, см. [`LICENSE`](LICENSE).
+- Stockfish — GPLv3. Бинарник и соответствующие исходники включены; полный текст в [`engine/Copying.txt`](engine/Copying.txt), подробности в [`engine/README.md`](engine/README.md).
+- Chess.com — торговая марка Chess.com, LLC. Проект не связан с Chess.com.
+
+См. также [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
