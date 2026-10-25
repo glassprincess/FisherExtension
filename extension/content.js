@@ -8,7 +8,7 @@
 
   const POLL_MS = 300;
   const HEARTBEAT_MS = 5000;
-  const CONTENT_VERSION = "0.4.0"; // должно совпадать с version в manifest.json
+  const CONTENT_VERSION = "0.5.0"; // должно совпадать с version в manifest.json
   const NS = "http://www.w3.org/2000/svg";
   const ARROW_ID = "cbh-arrow";
   const REVIEW_ID = "cbh-review";
@@ -218,7 +218,6 @@
 
   // ─────────────────────── оценка ходов ───────────────────────
 
-  const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
   const cacheKey = (moves) => moves.join(" ");
 
   function cachePut(moves, rec) {
@@ -242,39 +241,56 @@
     return rec;
   }
 
-  /** Теория из дебютного справочника по позиции (учитывает транспозиции). */
-  function isBookPosition(sans, i, finalState) {
-    const state = i === sans.length - 1 ? finalState : ChessLogic.replay(sans.slice(0, i + 1)).state;
-    return !!state && OpeningBook.isBook(ChessLogic.toFen(state));
+  /** Позиции после каждого хода; последняя берётся из уже разобранного состояния. */
+  function statesAfter(sans, finalState) {
+    const states = new Array(sans.length);
+    let state = ChessLogic.startState();
+    for (let i = 0; i < sans.length; i++) {
+      if (i === sans.length - 1) { states[i] = finalState; break; }
+      const mv = ChessLogic.findMove(state, sans[i]);
+      if (!mv) return null;
+      state = ChessLogic.apply(state, mv);
+      states[i] = state;
+    }
+    return states;
   }
 
-  /** Жертва: лучший ход ставит фигуру под бой, а взятие не окупает её. */
-  function isSacrifice(sans, uci, i, finalState) {
-    const before = ChessLogic.replay(sans.slice(0, i));
-    const after = i === sans.length - 1 ? finalState : ChessLogic.replay(sans.slice(0, i + 1)).state;
-    if (!before.ok || !after) return false;
-    const to = uci[i].charCodeAt(2) - 97 + (Number(uci[i][3]) - 1) * 8;
-    const piece = after.board[to];
-    if (!piece || piece.toLowerCase() === "k") return false;
-    const us = piece === piece.toUpperCase() ? "w" : "b";
-    if (!ChessLogic.attacked(after.board, to, us === "w" ? "b" : "w")) return false;
-    const victim = before.state.board[to];
-    const gain = victim === "." ? 0 : PIECE_VALUE[victim.toLowerCase()] || 0;
-    const value = PIECE_VALUE[piece.toLowerCase()] || 0;
-    return value >= 3 && gain < value;
+  /** Сколько материала отдаёт ход: чистый выигрыш соперника минус взятое ходом. */
+  function sacrificeValue(states, i, move) {
+    if (!states[i] || !move) return 0;
+    const before = i ? states[i - 1] : ChessLogic.startState();
+    return ChessLogic.sacrificeLoss(before, states[i], move);
   }
 
-  function classifyAt(sans, uci, i, finalState) {
+  /** Книжные ходы отмечаются сразу, не дожидаясь оценок движка. */
+  function reviewBooks(board, sans, r) {
+    const states = statesAfter(sans, r.state);
+    if (!states) return;
+    for (let i = 0; i < sans.length; i++) {
+      if (reviewMoves[i] || !r.uci[i]) continue;
+      if (OpeningBook.isBook(ChessLogic.toFen(states[i]))) {
+        reviewMoves[i] = { san: sans[i], uci: r.uci[i], key: "book" };
+      }
+    }
+    decorateMoves(board);
+  }
+
+  function classifyAt(sans, uci, i, states) {
+    const stateAfter = states[i];
+    if (!stateAfter || !uci[i]) return false;
+    if (OpeningBook.isBook(ChessLogic.toFen(stateAfter))) {
+      reviewMoves[i] = { san: sans[i], uci: uci[i], key: "book" };
+      return true;
+    }
     const before = evalCache.get(cacheKey(uci.slice(0, i)));
     const after = evalCache.get(cacheKey(uci.slice(0, i + 1)));
-    if (!before || !after || !uci[i]) return false;
+    if (!before || !after) return false;
     const cls = MoveReview.classify({
       played: uci[i],
       bestmove: before.bestmove,
       before: before.eval,
       after: after.eval,
-      book: isBookPosition(sans, i, finalState),
-      sacrifice: isSacrifice(sans, uci, i, finalState),
+      sacrifice: sacrificeValue(states, i, uci[i]),
     });
     if (!cls) return false;
     reviewMoves[i] = { san: sans[i], uci: uci[i], key: cls.key };
@@ -419,14 +435,16 @@
   }
 
   async function reviewPosition(board, sans, r, bottom, mySeq) {
+    const states = statesAfter(sans, r.state);
+    if (!states) return;
     for (let i = 0; i < sans.length; i++) {
-      if (!reviewMoves[i]) classifyAt(sans, r.uci, i, r.state);
+      if (!reviewMoves[i]) classifyAt(sans, r.uci, i, states);
     }
     const last = sans.length - 1;
     if (last >= 0 && !reviewMoves[last]) {
       const prev = await ensurePosition(r.uci.slice(0, last));
       if (mySeq !== seq) return;
-      if (prev) classifyAt(sans, r.uci, last, r.state);
+      if (prev) classifyAt(sans, r.uci, last, states);
     }
     if (reviewMoves[last]) lastReview = { uci: r.uci[last], key: reviewMoves[last].key, bottom };
     decorateMoves(board);
@@ -480,6 +498,7 @@
     const r = ChessLogic.replay(sans);
     if (!r.ok) { setGameLive(false); setStatus("ошибка разбора: " + r.error); return; }
     if (r.legalCount === 0) { setGameLive(false); setStatus("партия окончена"); return; }
+    if (reviewEnabled) reviewBooks(board, sans, r);
     setGameLive(true);
     const showHint = hintEnabled && r.turn === bottom;
     if (!showHint && !reviewEnabled) { setStatus(hintEnabled ? "ход бота" : "неактивно"); return; }

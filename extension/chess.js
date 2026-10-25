@@ -168,6 +168,32 @@
 
   const uci = (m) => sqName(m.from) + sqName(m.to) + (m.promo || "");
 
+  // Стоимость фигур в пешках — только для оценки размена.
+  const SEE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+
+  /** Максимальный чистый выигрыш материала взятиями на поле target (в пешках). */
+  function see(state, target) {
+    const victim = state.board[target];
+    if (victim === "." || victim.toLowerCase() === "k") return 0;
+    let best = 0;
+    for (const m of legalMoves(state)) {
+      if (m.to !== target) continue;
+      const gain = SEE_VALUE[victim.toLowerCase()] + (m.promo ? SEE_VALUE[m.promo] - 1 : 0);
+      const reply = see(apply(state, m), target);
+      if (gain - reply > best) best = gain - reply;
+    }
+    return best;
+  }
+
+  /** Чистая потеря материала ходом (в пешках): выигрыш соперника взятиями минус взятое ходом. */
+  function sacrificeLoss(before, after, move) {
+    if (!before || !after || !move || move.length < 4) return 0;
+    const to = FILES.indexOf(move[2]) + (Number(move[3]) - 1) * 8;
+    const captured = before.board[to];
+    const gained = captured === "." ? 0 : SEE_VALUE[captured.toLowerCase()] || 0;
+    return see(after, to) - gained;
+  }
+
   function toFen(state) {
     const rows = [];
     for (let r = 7; r >= 0; r--) {
@@ -292,5 +318,5 @@
     };
   }
 
-  return { startState, fromFen, toFen, legalMoves, apply, uci, findMove, replay, perft, sqName, attacked };
+  return { startState, fromFen, toFen, legalMoves, apply, uci, findMove, replay, perft, sqName, attacked, see, sacrificeLoss };
 });

@@ -38,6 +38,33 @@ for (const [name, fen, expected] of positions) {
   });
 }
 
+// 1b) статическая оценка размена: сколько сторона может выиграть взятиями на поле
+{
+  const knight = C.fromFen("4k3/8/3p4/4N3/8/8/8/4K3 b - - 0 1");
+  ok(C.see(knight, 36) === 3, "SEE: незащищённый конь под пешкой стоит 3");
+
+  const defended = C.fromFen("4k3/8/3p4/4P3/3P4/8/8/4K3 b - - 0 1");
+  ok(C.see(defended, 36) === 0, "SEE: равный размен не считается жертвой");
+
+  const kingRecapture = C.fromFen("6k1/7B/8/8/8/8/8/4K3 b - - 0 1");
+  ok(C.see(kingRecapture, 55) === 3, "SEE: король не считается взятием при обратном бое");
+
+  const pawnTrade = C.fromFen("4k3/8/3p4/4p3/3P4/5N2/8/4K3 w - - 0 1");
+  const knightTakesPawn = C.findMove(pawnTrade, "Nxe5");
+  ok(knightTakesPawn && C.sacrificeLoss(pawnTrade, C.apply(pawnTrade, knightTakesPawn), "f3e5") === 1,
+    "жертва: конь за пешку — потеря 1, а не 2");
+
+  const bishopSac = C.fromFen("6k1/7p/8/8/8/8/2B5/4K3 w - - 0 1");
+  const bishopTakesPawn = C.findMove(bishopSac, "Bxh7+");
+  ok(bishopTakesPawn && C.sacrificeLoss(bishopSac, C.apply(bishopSac, bishopTakesPawn), "c2h7") === 2,
+    "жертва: слон за пешку — потеря 2");
+
+  const knightSac = C.fromFen("4k3/8/3p4/8/8/5N2/8/4K3 w - - 0 1");
+  const knightToE5 = C.findMove(knightSac, "Ne5");
+  ok(knightToE5 && C.sacrificeLoss(knightSac, C.apply(knightSac, knightToE5), "f3e5") === 3,
+    "жертва: конь на пустое поле под пешкой — потеря 3");
+}
+
 // 2) реальные данные пользователя: партия из списка ходов chess.com и расстановка фигур из chessboard
 {
   const san = "e4 e6 Nf3 c6 Bc4 Qe7 O-O f6 b3 d5".split(" ");

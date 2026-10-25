@@ -44,6 +44,11 @@
   const GOOD_MAX = 50;
   const INACCURACY_MAX = 100;
   const MISTAKE_MAX = 250;
+  // Блестящий ход — только настоящая жертва фигуры в невыигранной позиции.
+  const BRILLIANT_MIN_SACRIFICE = 2; // отдано минимум на 2 пешки (фигура / качество)
+  const BRILLIANT_MAX_LOSS = 20;     // лучший или почти лучший ход
+  const BRILLIANT_MAX_BEFORE = 300;  // до хода ещё не было полного перевеса
+  const BRILLIANT_MIN_AFTER = -50;   // после хода не попал в плохую позицию
 
   const ICONS = {
     brilliant: { file: "brilliant.svg", color: "#1bada6", label: "Блестящий ход" },
@@ -60,23 +65,28 @@
   };
 
   /* played/bestmove — UCI, before — оценка до хода (от лица ходящего),
-   * after — оценка после хода (от лица соперника). book и sacrifice — флаги из content.js. */
-  function classify({ played, bestmove, before, after, book, sacrifice }) {
+   * after — оценка после хода (от лица соперника). book — позиция есть в теории,
+   * sacrifice — сколько пешек отдаёт ход (0 — не жертва). Книга важнее оценки:
+   * её можно определить без движка. */
+  function classify({ played, bestmove, before, after, book, sacrifice = 0 }) {
+    if (book) return { key: "book" };
     if (!before || !after) return null;
     const beforeCp = scoreToCp(before);
     const afterCp = -scoreToCp(after); // обратно к лицу, сделавшему ход
     const loss = beforeCp - afterCp;
     const isBest = played === bestmove;
 
-    if (book) return { key: "book" };
-    if (sacrifice && isBest) return { key: "brilliant" };
+    if (sacrifice >= BRILLIANT_MIN_SACRIFICE && loss <= BRILLIANT_MAX_LOSS &&
+        beforeCp < BRILLIANT_MAX_BEFORE && afterCp >= BRILLIANT_MIN_AFTER) {
+      return { key: "brilliant" };
+    }
     if (isBest && beforeCp <= -150 && afterCp >= -50) return { key: "great" };
     if (isBest) return { key: "best" };
     const afterMateForMover = after.type === "mate" && after.value < 0; // соперник под матом
     if (afterMateForMover) return { key: "excellent" }; // мат остался, даже если дальше
     if (before.type === "mate" && before.value > 0) return { key: "missed" };
     if (beforeCp >= 500 && afterCp < 150) return { key: "missed" };
-    if (sacrifice && loss <= INACCURACY_MAX) return { key: "sharp" };
+    if (sacrifice >= 1 && loss <= INACCURACY_MAX) return { key: "sharp" };
     if (loss <= EXCELLENT_MAX) return { key: "excellent" };
     if (loss <= GOOD_MAX) return { key: "good" };
     if (loss <= INACCURACY_MAX) return { key: "inaccuracy" };

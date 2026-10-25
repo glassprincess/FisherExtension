@@ -88,6 +88,7 @@ async function scenario(browser, { url, flipped, reply, name, body, safeMode = t
   const review = await page.evaluate(() => ({
     bar: !!document.querySelector("#cbh-eval"),
     icon: !!document.querySelector(".cbh-review-icon"),
+    book: document.querySelectorAll('.cbh-review-icon[src$="book.svg"]').length,
   }));
   await page.close();
   return { calls, arrow, badge, promo, st, review };
@@ -250,7 +251,8 @@ async function scenario(browser, { url, flipped, reply, name, body, safeMode = t
     await page.addScriptTag({ content: contentJs });
     await sleep(2500);
     const review = await page.evaluate(() => {
-      const icon = document.querySelector(".cbh-review-icon");
+      const lastNode = [...document.querySelectorAll(".node.main-line-ply")].pop();
+      const icon = lastNode ? lastNode.querySelector(".cbh-review-icon") : null;
       const rects = [...document.querySelectorAll("#cbh-review rect")];
       const badge = document.querySelector("#cbh-review-badge image");
       const white = document.querySelector("#cbh-eval .cbh-eval-white");
@@ -273,6 +275,60 @@ async function scenario(browser, { url, flipped, reply, name, body, safeMode = t
     ok(review.badge && Math.abs(Number(review.badge.x) - 45) < 0.01 && Math.abs(Number(review.badge.y) - 37.7) < 0.01,
       "иконка стоит в правом верхнем углу поля d5");
     await page.close();
+  }
+  {
+    const page = await browser.newPage();
+    const boardHtml = `<wc-chess-board id="board-play-computer">
+      <div class="piece wk square-51"></div><div class="piece bk square-58"></div>
+    </wc-chess-board>`;
+    const moves = "e4 e5 Nf3 Nc6 Bc4 d6 Nc3 Bg4 Nxe5".split(" ");
+    const sidebarHtml = `<wc-simple-move-list board-id="board-play-computer">${
+      moves.map((s) => `<div class="node main-line-ply"><span class="node-highlight-content">${s} </span></div>`).join("")
+    }</wc-simple-move-list>`;
+    await page.route("https://www.chess.com/**", (route) => route.fulfill({ contentType: "text/html", body: pageHtml(false, boardHtml, sidebarHtml) }));
+    await page.addInitScript(() => {
+      window.__listeners = [];
+      window.browser = {
+        runtime: {
+          id: "test-id",
+          getURL: (p) => "moz-extension://test/" + p,
+          sendMessage: async (m) => {
+            if (m.type !== "analyze") return { ok: true };
+            if (m.moves.length === 8) return { bestmove: "c3e5", eval: { type: "cp", value: 20 } };
+            if (m.moves.length === 9) return { bestmove: "d8d7", eval: { type: "cp", value: -100 } };
+            return { bestmove: "e2e4", eval: { type: "cp", value: 0 } };
+          },
+          onMessage: { addListener: (f) => window.__listeners.push(f) },
+        },
+        storage: {
+          local: { get: async () => ({ safeMode: true, hintEnabled: false, reviewEnabled: true }) },
+          onChanged: { addListener() {} },
+        },
+      };
+    });
+    await page.goto("https://www.chess.com/play/computer/harry");
+    await page.addScriptTag({ content: chessJs });
+    await page.addScriptTag({ content: reviewJs });
+    await page.addScriptTag({ content: openingsJs });
+    await page.addScriptTag({ content: contentJs });
+    await sleep(3000);
+    const lastIcon = await page.evaluate(() => {
+      const node = [...document.querySelectorAll(".node.main-line-ply")].pop();
+      return node?.querySelector(".cbh-review-icon")?.getAttribute("src") || null;
+    });
+    ok(lastIcon && lastIcon.endsWith("analysis-icons/brilliant.svg"),
+      "жертва фигуры в лучшем ходе получает «блестящий», а не просто «лучший»");
+    await page.close();
+  }
+  {
+    const r = await scenario(browser, {
+      url: "https://www.chess.com/play/computer/harry",
+      flipped: false,
+      reply: { bestmove: "c4d5" },
+      reviewEnabled: true,
+      waitMs: 1500,
+    });
+    ok(r.review.book > 0, "книжные ходы видны сразу, без ожидания оценки движка");
   }
   {
     const r = await scenario(browser, {

@@ -42,10 +42,38 @@ try {
   const book = Review.classify({ played: "e2e4", bestmove: "e2e4", before: cp(20), after: cp(-20), book: true });
   assert.strictEqual(book.key, "book");
 
+  const bookNoEval = Review.classify({ played: "e2e4", bestmove: "e2e4", book: true });
+  assert.strictEqual(bookNoEval.key, "book");
+
   const brilliant = Review.classify({
-    played: "e2e4", bestmove: "e2e4", before: cp(20), after: cp(-20), sacrifice: true,
+    played: "e2e4", bestmove: "e2e4", before: cp(20), after: cp(-20), sacrifice: 3,
   });
   assert.strictEqual(brilliant.key, "brilliant");
+
+  const winningSacrifice = Review.classify({
+    played: "e2e4", bestmove: "e2e4", before: cp(600), after: cp(-20), sacrifice: 3,
+  });
+  assert.strictEqual(winningSacrifice.key, "best");
+
+  const losingSacrifice = Review.classify({
+    played: "e2e4", bestmove: "e2e4", before: cp(0), after: cp(150), sacrifice: 3,
+  });
+  assert.strictEqual(losingSacrifice.key, "best");
+
+  const pawnSacrifice = Review.classify({
+    played: "e2e4", bestmove: "e2e4", before: cp(20), after: cp(-20), sacrifice: 1,
+  });
+  assert.strictEqual(pawnSacrifice.key, "best");
+
+  const nearBestSacrifice = Review.classify({
+    played: "g1f3", bestmove: "e2e4", before: cp(0), after: cp(-10), sacrifice: 3,
+  });
+  assert.strictEqual(nearBestSacrifice.key, "brilliant");
+
+  const exchangeSacrifice = Review.classify({
+    played: "e2e4", bestmove: "e2e4", before: cp(20), after: cp(-20), sacrifice: 2,
+  });
+  assert.strictEqual(exchangeSacrifice.key, "brilliant");
 
   const great = Review.classify({
     played: "e2e4", bestmove: "e2e4", before: cp(-250), after: cp(-120),
@@ -88,7 +116,7 @@ try {
   assert.strictEqual(slowerMate.key, "excellent");
 
   const sharp = Review.classify({
-    played: "g1f3", bestmove: "e2e4", before: cp(0), after: cp(20), sacrifice: true,
+    played: "g1f3", bestmove: "e2e4", before: cp(0), after: cp(80), sacrifice: 3,
   });
   assert.strictEqual(sharp.key, "sharp");
 
