@@ -278,6 +278,128 @@ async function scenario(browser, { url, flipped, reply, name, body, safeMode = t
   }
   {
     const page = await browser.newPage();
+    await page.route("https://www.chess.com/**", (route) => route.fulfill({ contentType: "text/html", body: pageHtml(false) }));
+    await page.addInitScript(() => {
+      window.__calls = [];
+      window.__listeners = [];
+      window.__best = "e2e4 e7e6 g1f3 c7c6 f1c4 d8e7 e1g1 f7f6 b2b3 d7d5".split(" ");
+      window.browser = {
+        runtime: {
+          id: "test-id",
+          getURL: (p) => "moz-extension://test/" + p,
+          sendMessage: async (m) => {
+            window.__calls.push(m);
+            const bestmove = m.moves.length % 2 === 0
+              ? (window.__best[m.moves.length] || "a1a1")
+              : "a1a1";
+            return { bestmove, depth: 12, eval: { type: "cp", value: 0 } };
+          },
+          onMessage: { addListener: (f) => window.__listeners.push(f) },
+        },
+        storage: {
+          local: { get: async () => ({ safeMode: true, reviewEnabled: true }) },
+          onChanged: { addListener() {} },
+        },
+      };
+    });
+    await page.goto("https://www.chess.com/play/computer/harry");
+    await page.addScriptTag({ content: chessJs });
+    await page.addScriptTag({ content: reviewJs });
+    await page.addScriptTag({ content: openingsJs });
+    await page.addScriptTag({ content: contentJs });
+    await sleep(3000);
+    const icons = await page.evaluate(() =>
+      [...document.querySelectorAll(".node.main-line-ply")].map((node) =>
+        node.querySelector(".cbh-review-icon")?.dataset.key || null));
+    const botBest = icons.filter((key, i) => i % 2 === 1 && key === "best");
+    ok(botBest.length === 0, "ни один ход бота не помечен «лучшим», если движок предлагал другой ход");
+    await page.close();
+  }
+  {
+    const page = await browser.newPage();
+    await page.route("https://www.chess.com/**", (route) => route.fulfill({ contentType: "text/html", body: pageHtml(false) }));
+    await page.addInitScript(() => {
+      window.__calls = [];
+      window.browser = {
+        runtime: {
+          id: "test-id",
+          getURL: (p) => "moz-extension://test/" + p,
+          sendMessage: async (m) => {
+            window.__calls.push(m);
+            if (m.type !== "analyze") return { ok: true };
+            if (m.moves.length === 9) {
+              // Подсказка считает сыгранный ход лучшим, независимый разбор — нет.
+              return { bestmove: m.review ? "b8c6" : "d7d5", depth: 18, eval: { type: "cp", value: 0 } };
+            }
+            return { bestmove: "e2e4", depth: 18, eval: { type: "cp", value: 0 } };
+          },
+          onMessage: { addListener() {} },
+        },
+        storage: {
+          local: { get: async () => ({ safeMode: true, hintEnabled: false, reviewEnabled: true }) },
+          onChanged: { addListener() {} },
+        },
+      };
+    });
+    await page.goto("https://www.chess.com/play/computer/harry");
+    await page.addScriptTag({ content: chessJs });
+    await page.addScriptTag({ content: reviewJs });
+    await page.addScriptTag({ content: openingsJs });
+    await page.addScriptTag({ content: contentJs });
+    await sleep(3000);
+    const last = await page.evaluate(() => {
+      const node = [...document.querySelectorAll(".node.main-line-ply")].pop();
+      return {
+        icon: node?.querySelector(".cbh-review-icon")?.dataset.key || null,
+        review: window.__calls.some((c) => c.type === "analyze" && c.moves.length === 9 && c.review === true),
+      };
+    });
+    ok(last.review, "разбор запрашивает отдельный анализ (review=true), а не переиспользует подсказку");
+    ok(last.icon && last.icon !== "best", "ход не получает «лучший» только потому, что его же предложила подсказка");
+    await page.close();
+  }
+  {
+    const moves = "e4 e6 Nf3 c6 Bc4 Qe7 O-O f6 b3 d5".split(" ");
+    const sidebarHtml = `<wc-simple-move-list board-id="board-play-computer">
+      <div class="node main-line-ply"><span class="node-highlight-content"> </span></div>
+      ${moves.map((s) => `<div class="node main-line-ply"><span class="node-highlight-content">${s} </span></div>`).join("")}
+    </wc-simple-move-list>`;
+    const page = await browser.newPage();
+    await page.route("https://www.chess.com/**", (route) => route.fulfill({ contentType: "text/html", body: pageHtml(false, board, sidebarHtml) }));
+    await page.addInitScript(() => {
+      window.browser = {
+        runtime: {
+          id: "test-id",
+          getURL: (p) => "moz-extension://test/" + p,
+          sendMessage: async (m) => {
+            if (m.type !== "analyze") return { ok: true };
+            if (m.moves.length === 9) return { bestmove: "d7d5", depth: 18, eval: { type: "cp", value: 0 } };
+            if (m.moves.length === 10) return { bestmove: "c4d5", depth: 18, eval: { type: "cp", value: 0 } };
+            return { bestmove: "e2e4", depth: 18, eval: { type: "cp", value: 0 } };
+          },
+          onMessage: { addListener() {} },
+        },
+        storage: {
+          local: { get: async () => ({ safeMode: true, hintEnabled: false, reviewEnabled: true }) },
+          onChanged: { addListener() {} },
+        },
+      };
+    });
+    await page.goto("https://www.chess.com/play/computer/harry");
+    await page.addScriptTag({ content: chessJs });
+    await page.addScriptTag({ content: reviewJs });
+    await page.addScriptTag({ content: openingsJs });
+    await page.addScriptTag({ content: contentJs });
+    await sleep(3000);
+    const nodes = await page.evaluate(() =>
+      [...document.querySelectorAll(".node.main-line-ply")].map((n) =>
+        n.querySelector(".cbh-review-icon")?.dataset.key || null));
+    ok(nodes[0] === null, "пустой узел списка не получает иконку");
+    ok(nodes[nodes.length - 1] === "best", "иконки не сдвигаются из-за пустого узла");
+    await page.close();
+  }
+  {
+    const page = await browser.newPage();
     const boardHtml = `<wc-chess-board id="board-play-computer">
       <div class="piece wk square-51"></div><div class="piece bk square-58"></div>
     </wc-chess-board>`;
@@ -319,6 +441,20 @@ async function scenario(browser, { url, flipped, reply, name, body, safeMode = t
     ok(lastIcon && lastIcon.endsWith("analysis-icons/brilliant.svg"),
       "жертва фигуры в лучшем ходе получает «блестящий», а не просто «лучший»");
     await page.close();
+  }
+  {
+    const r = await scenario(browser, {
+      url: "https://www.chess.com/play/computer/harry",
+      flipped: false,
+      reply: { bestmove: "c4d5", eval: { type: "cp", value: 30 } },
+      hintEnabled: true,
+      reviewEnabled: true,
+      waitMs: 2500,
+    });
+    const last = r.calls.filter((c) => c.type === "analyze" && c.moves.length === 10);
+    ok(last.length === 2 && last[0].review !== true && last[1].review === true,
+      "оба режима: подсказка и разбор считаются отдельными запросами");
+    ok(r.arrow && r.review.bar && r.review.icon, "оба режима: стрелка, полоса и иконка на месте");
   }
   {
     const r = await scenario(browser, {

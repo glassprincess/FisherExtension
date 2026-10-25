@@ -99,13 +99,16 @@ async function getSettings() {
   return { mode, value: LIMITS[mode][limit], skill: SKILLS[skill] };
 }
 
-async function analyze(moves) {
+async function analyze(moves, review) {
   if (!Array.isArray(moves) || moves.length > 1024 || !moves.every((m) => typeof m === "string" && UCI_MOVE.test(m))) {
     return { error: "некорректный список ходов" };
   }
   noteGameActive();
   const settings = await getSettings();
-  const timeout = settings.mode === "time" ? settings.value + 8000 : 30000;
+  // Разбор не переиспользует подсказку: своя полная сила и глубина,
+  // иначе ход, сыгранный по подсказке, всегда выглядит «лучшим».
+  const limit = review ? { mode: "depth", value: 20, skill: 20 } : settings;
+  const timeout = limit.mode === "time" ? limit.value + 8000 : 30000;
   const p = connect();
   if (!p) return { error: lastError || "не удалось подключиться к мосту" };
   finish({ cancelled: true }); // предыдущий запрос больше не нужен; мост остановит поиск сам
@@ -116,7 +119,7 @@ async function analyze(moves) {
     }, timeout);
     pending = { id, resolve, timer };
     try {
-      p.postMessage({ id, moves, mode: settings.mode, value: settings.value, skill: settings.skill });
+      p.postMessage({ id, moves, mode: limit.mode, value: limit.value, skill: limit.skill });
     } catch (e) {
       finish({ error: String(e && e.message ? e.message : e) });
     }
@@ -126,7 +129,7 @@ async function analyze(moves) {
 browser.runtime.onMessage.addListener((msg, sender) => {
   // принимаем сообщения только от собственных скриптов расширения
   if (!sender || sender.id !== browser.runtime.id || !msg || typeof msg !== "object") return undefined;
-  if (msg.type === "analyze") return analyze(msg.moves);
+  if (msg.type === "analyze") return analyze(msg.moves, msg.review === true);
   if (msg.type === "game-active") {
     noteGameActive();
     return Promise.resolve({ ok: true });

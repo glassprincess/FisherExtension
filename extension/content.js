@@ -8,7 +8,7 @@
 
   const POLL_MS = 300;
   const HEARTBEAT_MS = 5000;
-  const CONTENT_VERSION = "0.5.0"; // должно совпадать с version в manifest.json
+  const CONTENT_VERSION = "0.5.1"; // должно совпадать с version в manifest.json
   const NS = "http://www.w3.org/2000/svg";
   const ARROW_ID = "cbh-arrow";
   const REVIEW_ID = "cbh-review";
@@ -123,16 +123,20 @@
   }
 
   /** Список ходов (SAN) из панели chess.com или null, если панель ещё не отрисована. */
+  function sanOf(node) {
+    const content = node.querySelector(".node-highlight-content") || node;
+    return textOf(content).replace(/\s+/g, "");
+  }
+
+  /** Только узлы с ходами: пустые служебные узлы не должны сдвигать иконки. */
+  function moveNodes(list) {
+    return [...list.querySelectorAll(".node.main-line-ply")].filter((node) => sanOf(node));
+  }
+
   function readSan(board) {
     const list = moveList(board);
     if (!list) return null;
-    const out = [];
-    for (const node of list.querySelectorAll(".node.main-line-ply")) {
-      const content = node.querySelector(".node-highlight-content") || node;
-      const san = textOf(content).replace(/\s+/g, "");
-      if (san) out.push(san);
-    }
-    return out;
+    return moveNodes(list).map(sanOf);
   }
 
   /** Кто стоит снизу ("w"/"b"), по реальному положению фигур на экране; null — если не удалось. */
@@ -231,7 +235,7 @@
     if (hit) return hit;
     let res;
     try {
-      res = await browser.runtime.sendMessage({ type: "analyze", moves });
+      res = await browser.runtime.sendMessage({ type: "analyze", moves, review: true });
     } catch (_) {
       return null;
     }
@@ -314,7 +318,7 @@
   function decorateMoves(board) {
     const list = moveList(board);
     if (!list) return;
-    const nodes = [...list.querySelectorAll(".node.main-line-ply")];
+    const nodes = moveNodes(list);
     nodes.forEach((node, i) => {
       const old = node.querySelector("." + REVIEW_ICON);
       const rec = reviewMoves[i];
@@ -504,37 +508,48 @@
     if (!showHint && !reviewEnabled) { setStatus(hintEnabled ? "ход бота" : "неактивно"); return; }
 
     setStatus(showHint ? (r.pendingPromotion ? "превращение: считаю…" : "считаю…") : "оценка позиции…");
-    let res;
-    try {
-      res = await browser.runtime.sendMessage({ type: "analyze", moves: r.uci });
-    } catch (e) {
-      res = { error: String(e && e.message ? e.message : e) };
+    if (showHint) {
+      let hint;
+      try {
+        hint = await browser.runtime.sendMessage({ type: "analyze", moves: r.uci });
+      } catch (e) {
+        hint = { error: String(e && e.message ? e.message : e) };
+      }
+      if (mySeq !== seq) return; // позиция уже изменилась
+      if (hint && hint.bestmove) {
+        const legal = ChessLogic.legalMoves(r.state).map(ChessLogic.uci);
+        if (!legal.includes(hint.bestmove)) {
+          setStatus("движок вернул нелегальный ход — игнорирую");
+        } else {
+          drawArrow(board, hint.bestmove, bottom);
+          setStatus("подсказка: " + moveLabel(hint.bestmove));
+        }
+      } else if (hint && hint.cancelled) {
+        handledSig = ""; // мост выгрузился; на следующем тике попробуем снова
+        return;
+      } else {
+        setStatus("ошибка: " + ((hint && hint.error) || "нет ответа"));
+      }
     }
-    if (mySeq !== seq) return; // позиция уже изменилась
-    if (res && res.bestmove) {
-      if (reviewEnabled && res.eval) {
+    if (reviewEnabled) {
+      let res;
+      try {
+        res = await browser.runtime.sendMessage({ type: "analyze", moves: r.uci, review: true });
+      } catch (e) {
+        res = { error: String(e && e.message ? e.message : e) };
+      }
+      if (mySeq !== seq) return;
+      if (res && res.bestmove && res.eval) {
         cachePut(r.uci, { bestmove: res.bestmove, eval: res.eval });
         lastEval = { score: res.eval, turn: r.turn, bottom };
         drawEvalBar(board, res.eval, r.turn, bottom);
+        if (!showHint) setStatus(r.turn === bottom ? "разбор готов" : "ход бота");
+        await reviewPosition(board, sans, r, bottom, mySeq);
+      } else if (res && res.cancelled) {
+        handledSig = ""; // мост выгрузился; на следующем тике попробуем снова
+      } else if (!showHint) {
+        setStatus("ошибка: " + ((res && res.error) || "нет ответа"));
       }
-      if (showHint) {
-        const legal = ChessLogic.legalMoves(r.state).map(ChessLogic.uci);
-        if (!legal.includes(res.bestmove)) {
-          setStatus("движок вернул нелегальный ход — игнорирую");
-        } else {
-          drawArrow(board, res.bestmove, bottom);
-          setStatus("подсказка: " + moveLabel(res.bestmove));
-        }
-      } else if (r.turn === bottom) {
-        setStatus("разбор готов");
-      } else {
-        setStatus("ход бота");
-      }
-      if (reviewEnabled) await reviewPosition(board, sans, r, bottom, mySeq);
-    } else if (res && res.cancelled) {
-      handledSig = ""; // мост выгрузился; на следующем тике попробуем снова
-    } else {
-      setStatus("ошибка: " + ((res && res.error) || "нет ответа"));
     }
   }
 

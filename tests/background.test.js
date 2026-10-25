@@ -35,9 +35,9 @@ function loadBackground(storage) {
   return { onMessage, state };
 }
 
-async function analyzeWith(storage, moves = []) {
+async function analyzeWith(storage, moves = [], review = false) {
   const bg = loadBackground(storage);
-  const p = bg.onMessage({ type: "analyze", moves }, { id: "test" });
+  const p = bg.onMessage({ type: "analyze", moves, review }, { id: "test" });
   for (let i = 0; i < 100 && bg.state.sent.length === 0; i++) await delay(1);
   const req = bg.state.sent[0];
   bg.state.portMessage({ type: "ready" });
@@ -71,6 +71,10 @@ async function analyzeWith(storage, moves = []) {
   {
     const { req } = await analyzeWith({ mode: "nodes", limit: "max", skill: "strong" });
     ok(req.mode === "nodes" && req.value === 1000000 && req.skill === 15, "узлы max + сильная сила");
+  }
+  {
+    const { req } = await analyzeWith({ mode: "time", limit: "low", skill: "weak" }, [], true);
+    ok(req.mode === "depth" && req.value === 20 && req.skill === 20, "разбор: глубина 20 и полная сила независимо от настроек подсказки");
   }
   {
     // Time mode accepts the legacy level fallback only when limit is absent.
