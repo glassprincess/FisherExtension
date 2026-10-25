@@ -12,6 +12,7 @@
   const NS = "http://www.w3.org/2000/svg";
   const ARROW_ID = "cbh-arrow";
   const REVIEW_ID = "cbh-review";
+  const BADGE_ID = "cbh-review-badge";
   const EVAL_ID = "cbh-eval";
   const REVIEW_ICON = "cbh-review-icon";
   const ICON_DIR = "analysis-icons/";
@@ -296,6 +297,8 @@
     evalCache.clear();
     const svg = document.getElementById(REVIEW_ID);
     if (svg) svg.remove();
+    const badge = document.getElementById(BADGE_ID);
+    if (badge) badge.remove();
   }
 
   function decorateMoves(board) {
@@ -333,24 +336,53 @@
     return svg;
   }
 
+  /** Иконка оценки — в правом верхнем углу поля, куда пришла фигура. */
+  function drawBadge(board) {
+    let layer = board.querySelector("#" + BADGE_ID);
+    if (!lastReview || !lastReview.bottom) { if (layer) layer.remove(); return; }
+    if (!layer) {
+      layer = document.createElementNS(NS, "svg");
+      layer.id = BADGE_ID;
+      layer.setAttribute("viewBox", "0 0 100 100");
+      layer.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:61;";
+      board.appendChild(layer);
+    }
+    layer.replaceChildren();
+    const uci = lastReview.uci;
+    const f = uci.charCodeAt(2) - 97;
+    const r = +uci[3] - 1;
+    const x = lastReview.bottom === "w" ? f : 7 - f;
+    const y = lastReview.bottom === "w" ? 7 - r : r;
+    const size = 4.8;
+    const img = document.createElementNS(NS, "image");
+    img.setAttribute("href", browser.runtime.getURL(ICON_DIR + MoveReview.ICONS[lastReview.key].file));
+    img.setAttribute("x", x * 12.5 + 12.5 - size - 0.2);
+    img.setAttribute("y", y * 12.5 + 0.2);
+    img.setAttribute("width", size);
+    img.setAttribute("height", size);
+    layer.appendChild(img);
+  }
+
   /** Поля последнего оценённого хода красим цветом его иконки. */
   function redrawReview(board) {
     const svg = board.querySelector("#" + REVIEW_ID);
-    if (!lastReview) { if (svg) svg.remove(); return; }
+    if (!lastReview) { if (svg) svg.remove(); drawBadge(board); return; }
     const color = MoveReview.ICONS[lastReview.key].color;
     const layer = svg || reviewOverlay(board);
     layer.replaceChildren();
-    if (!lastReview.bottom) return;
-    const uci = lastReview.uci;
-    for (const [f, r] of [[uci.charCodeAt(0) - 97, +uci[1] - 1], [uci.charCodeAt(2) - 97, +uci[3] - 1]]) {
-      const x = lastReview.bottom === "w" ? f : 7 - f;
-      const y = lastReview.bottom === "w" ? 7 - r : r;
-      const rect = document.createElementNS(NS, "rect");
-      rect.setAttribute("x", x * 12.5); rect.setAttribute("y", y * 12.5);
-      rect.setAttribute("width", 12.5); rect.setAttribute("height", 12.5);
-      rect.setAttribute("fill", color); rect.setAttribute("fill-opacity", "0.5");
-      layer.appendChild(rect);
+    if (lastReview.bottom) {
+      const uci = lastReview.uci;
+      for (const [f, r] of [[uci.charCodeAt(0) - 97, +uci[1] - 1], [uci.charCodeAt(2) - 97, +uci[3] - 1]]) {
+        const x = lastReview.bottom === "w" ? f : 7 - f;
+        const y = lastReview.bottom === "w" ? 7 - r : r;
+        const rect = document.createElementNS(NS, "rect");
+        rect.setAttribute("x", x * 12.5); rect.setAttribute("y", y * 12.5);
+        rect.setAttribute("width", 12.5); rect.setAttribute("height", 12.5);
+        rect.setAttribute("fill", color); rect.setAttribute("fill-opacity", "0.5");
+        layer.appendChild(rect);
+      }
     }
+    drawBadge(board);
   }
 
   /** Полоса перевеса слева от доски: белое снизу, чёрное сверху (при перевёрнутой доске — наоборот). */
@@ -387,6 +419,8 @@
     if (bar) bar.remove();
     const svg = document.getElementById(REVIEW_ID);
     if (svg) svg.remove();
+    const badge = document.getElementById(BADGE_ID);
+    if (badge) badge.remove();
     for (const el of document.querySelectorAll("." + REVIEW_ICON)) el.remove();
   }
 

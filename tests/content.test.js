@@ -243,10 +243,12 @@ async function scenario(browser, { url, flipped, reply, name, body, safeMode = t
     const review = await page.evaluate(() => {
       const icon = document.querySelector(".cbh-review-icon");
       const rects = [...document.querySelectorAll("#cbh-review rect")];
+      const badge = document.querySelector("#cbh-review-badge image");
       const white = document.querySelector("#cbh-eval .cbh-eval-white");
       return {
         calls: window.__calls.map((c) => c.moves.length),
         icon: icon ? { file: icon.getAttribute("src"), title: icon.title } : null,
+        badge: badge ? { file: badge.getAttribute("href"), x: badge.getAttribute("x"), y: badge.getAttribute("y") } : null,
         colors: rects.map((r) => r.getAttribute("fill")),
         rects: rects.length,
         label: document.querySelector("#cbh-eval .cbh-eval-label")?.textContent || null,
@@ -258,6 +260,9 @@ async function scenario(browser, { url, flipped, reply, name, body, safeMode = t
     ok(review.whiteHeight === "55%", "белая часть полосы заполнена по оценке");
     ok(review.icon && review.icon.file.endsWith("analysis-icons/book.svg"), "книжный ход получил иконку из панели теории");
     ok(review.rects === 2 && review.colors.every((c) => c === "#a88865"), "поля хода окрашены цветом иконки");
+    ok(review.badge && review.badge.file.endsWith("analysis-icons/book.svg"), "иконка хода есть на фигуре");
+    ok(review.badge && Math.abs(Number(review.badge.x) - 45) < 0.01 && Math.abs(Number(review.badge.y) - 37.7) < 0.01,
+      "иконка стоит в правом верхнем углу поля d5");
     await page.close();
   }
   {
