@@ -13,6 +13,7 @@ catch (_) {
 const ext = path.join(__dirname, "..", "extension");
 const chessJs = fs.readFileSync(path.join(ext, "chess.js"), "utf8");
 const reviewJs = fs.readFileSync(path.join(ext, "review.js"), "utf8");
+const openingsJs = fs.readFileSync(path.join(ext, "openings.js"), "utf8");
 const contentJs = fs.readFileSync(path.join(ext, "content.js"), "utf8");
 const board = fs.readFileSync(path.join(__dirname, "fixtures/board-after-10-plies.html"), "utf8");
 const sidebar = fs.readFileSync(path.join(__dirname, "fixtures/sidebar.html"), "utf8");
@@ -69,6 +70,7 @@ async function scenario(browser, { url, flipped, reply, name, body, safeMode = t
   }, { replyMsg: reply, safeMode });
   await page.goto(url);
   await page.addScriptTag({ content: chessJs });
+  await page.addScriptTag({ content: openingsJs });
   await page.addScriptTag({ content: contentJs });
   await sleep(waitMs); // несколько циклов опроса (300 мс) + стабилизация
   const calls = await page.evaluate(() => window.__calls);
@@ -238,6 +240,7 @@ async function scenario(browser, { url, flipped, reply, name, body, safeMode = t
     await page.goto("https://www.chess.com/play/computer/harry");
     await page.addScriptTag({ content: chessJs });
     await page.addScriptTag({ content: reviewJs });
+    await page.addScriptTag({ content: openingsJs });
     await page.addScriptTag({ content: contentJs });
     await sleep(2500);
     const review = await page.evaluate(() => {
@@ -258,9 +261,9 @@ async function scenario(browser, { url, flipped, reply, name, body, safeMode = t
     ok(review.calls.includes(10) && review.calls.includes(9), "оценка ходов: считаются текущая и предыдущая позиции");
     ok(review.label === "+0.3", "полоса перевеса показывает оценку с точки зрения белых");
     ok(review.whiteHeight === "55%", "белая часть полосы заполнена по оценке");
-    ok(review.icon && review.icon.file.endsWith("analysis-icons/book.svg"), "книжный ход получил иконку из панели теории");
-    ok(review.rects === 2 && review.colors.every((c) => c === "#a88865"), "поля хода окрашены цветом иконки");
-    ok(review.badge && review.badge.file.endsWith("analysis-icons/book.svg"), "иконка хода есть на фигуре");
+    ok(review.icon && review.icon.file.endsWith("analysis-icons/best.svg"), "ход вне теории получил иконку «лучший», а не «книжный»");
+    ok(review.rects === 2 && review.colors.every((c) => c === "#96bc4b"), "поля хода окрашены цветом иконки");
+    ok(review.badge && review.badge.file.endsWith("analysis-icons/best.svg"), "иконка хода есть на фигуре");
     ok(review.badge && Math.abs(Number(review.badge.x) - 45) < 0.01 && Math.abs(Number(review.badge.y) - 37.7) < 0.01,
       "иконка стоит в правом верхнем углу поля d5");
     await page.close();

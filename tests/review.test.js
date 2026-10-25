@@ -82,6 +82,11 @@ try {
   });
   assert.notStrictEqual(stillMate.key, "missed");
 
+  const slowerMate = Review.classify({
+    played: "g1f3", bestmove: "e2e4", before: mate(2), after: mate(-5),
+  });
+  assert.strictEqual(slowerMate.key, "excellent");
+
   const sharp = Review.classify({
     played: "g1f3", bestmove: "e2e4", before: cp(0), after: cp(20), sacrifice: true,
   });
@@ -89,11 +94,6 @@ try {
 
   assert.strictEqual(Review.classify({ played: "e2e4", bestmove: "e2e4" }), null);
   ok(true, "classify: основные категории");
-
-  ok(Review.sameLine(["e4", "e6", "Nf3"], "e4+e6+Nf3"), "sameLine: книга совпадает");
-  ok(!Review.sameLine(["e4", "e5"], "e4+e6+Nf3"), "sameLine: книга не совпадает");
-  ok(Review.sameLine(["e4", "e6", "Nf3"], "1.e4+e6+2.Nf3"), "sameLine: номера ходов игнорируются");
-  ok(Review.sameLine(["e4", "e6"], "e4+e6+Nf3+c6"), "sameLine: текущая линия — начало книги");
 
   ok(Review.ICONS.brilliant.file === "brilliant.svg", "иконка brilliant");
   ok(Review.ICONS.best.color === "#96bc4b", "цвет best");

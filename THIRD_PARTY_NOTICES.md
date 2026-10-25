@@ -27,6 +27,13 @@ The analysis icons under `extension/analysis-icons/` are SVG assets extracted fr
 annotations on chess.com pages. They are not covered by this project's MIT license and remain the
 property of Chess.com, LLC.
 
+## Opening book
+
+`extension/openings.js` is generated from
+[lichess-org/chess-openings](https://github.com/lichess-org/chess-openings)
+(3865 lines / 8058 positions). That dataset is released under CC0 1.0; see the
+upstream repository for the full text. Regenerate with `tools/build-openings.js`.
+
 ## Project code
 
 The extension, bridge source, tests and install scripts are licensed under the MIT License; see `LICENSE`.

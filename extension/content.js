@@ -8,7 +8,7 @@
 
   const POLL_MS = 300;
   const HEARTBEAT_MS = 5000;
-  const CONTENT_VERSION = "0.3.0"; // должно совпадать с version в manifest.json
+  const CONTENT_VERSION = "0.3.1"; // должно совпадать с version в manifest.json
   const NS = "http://www.w3.org/2000/svg";
   const ARROW_ID = "cbh-arrow";
   const REVIEW_ID = "cbh-review";
@@ -241,17 +241,10 @@
     return rec;
   }
 
-  /** Теория из панели chess.com: "e4+e6+Nf3" или "". */
-  function bookLine(board) {
-    const panels = [...document.querySelectorAll("wc-eco-opening")];
-    const panel = panels.find((el) => !el.getAttribute("board-id") || el.getAttribute("board-id") === board.id) || panels[0];
-    if (!panel) return "";
-    const direct = panel.getAttribute("moveList") || panel.getAttribute("movelist");
-    if (direct) return direct;
-    const a = panel.querySelector('a[href*="moveList="]');
-    const m = a && /[?&]moveList=([^&]+)/.exec(a.getAttribute("href") || "");
-    if (!m) return "";
-    try { return decodeURIComponent(m[1]); } catch (_) { return m[1]; }
+  /** Теория из дебютного справочника по позиции (учитывает транспозиции). */
+  function isBookPosition(sans, i, finalState) {
+    const state = i === sans.length - 1 ? finalState : ChessLogic.replay(sans.slice(0, i + 1)).state;
+    return !!state && OpeningBook.isBook(ChessLogic.toFen(state));
   }
 
   /** Жертва: лучший ход ставит фигуру под бой, а взятие не окупает её. */
@@ -270,7 +263,7 @@
     return value >= 3 && gain < value;
   }
 
-  function classifyAt(sans, uci, i, finalState, book) {
+  function classifyAt(sans, uci, i, finalState) {
     const before = evalCache.get(cacheKey(uci.slice(0, i)));
     const after = evalCache.get(cacheKey(uci.slice(0, i + 1)));
     if (!before || !after || !uci[i]) return false;
@@ -279,7 +272,7 @@
       bestmove: before.bestmove,
       before: before.eval,
       after: after.eval,
-      book: !!book && MoveReview.sameLine(sans.slice(0, i + 1), book),
+      book: isBookPosition(sans, i, finalState),
       sacrifice: isSacrifice(sans, uci, i, finalState),
     });
     if (!cls) return false;
@@ -425,15 +418,14 @@
   }
 
   async function reviewPosition(board, sans, r, bottom, mySeq) {
-    const book = bookLine(board);
     for (let i = 0; i < sans.length; i++) {
-      if (!reviewMoves[i]) classifyAt(sans, r.uci, i, r.state, book);
+      if (!reviewMoves[i]) classifyAt(sans, r.uci, i, r.state);
     }
     const last = sans.length - 1;
     if (last >= 0 && !reviewMoves[last]) {
       const prev = await ensurePosition(r.uci.slice(0, last));
       if (mySeq !== seq) return;
-      if (prev) classifyAt(sans, r.uci, last, r.state, book);
+      if (prev) classifyAt(sans, r.uci, last, r.state);
     }
     if (reviewMoves[last]) lastReview = { uci: r.uci[last], key: reviewMoves[last].key, bottom };
     decorateMoves(board);

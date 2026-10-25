@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Chess Bot Hint (Stockfish)",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Стрелка лучшего хода Stockfish, оценка позиции и разбор ходов как на chess.com. Сейфмод — только игры с ботами chess.com.",
   "browser_specific_settings": {
     "gecko": { "id": "chess-hint@local", "strict_min_version": "115.0" }
@@ -12,7 +12,7 @@
   "content_scripts": [
     {
       "matches": ["https://www.chess.com/*"],
-      "js": ["chess.js", "review.js", "content.js"],
+      "js": ["chess.js", "review.js", "openings.js", "content.js"],
       "run_at": "document_idle"
     }
   ],

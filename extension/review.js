@@ -73,7 +73,8 @@
     if (isBest && beforeCp <= -150 && afterCp >= -50) return { key: "great" };
     if (isBest) return { key: "best" };
     const afterMateForMover = after.type === "mate" && after.value < 0; // соперник под матом
-    if (before.type === "mate" && before.value > 0 && !afterMateForMover) return { key: "missed" };
+    if (afterMateForMover) return { key: "excellent" }; // мат остался, даже если дальше
+    if (before.type === "mate" && before.value > 0) return { key: "missed" };
     if (beforeCp >= 500 && afterCp < 150) return { key: "missed" };
     if (sacrifice && loss <= INACCURACY_MAX) return { key: "sharp" };
     if (loss <= EXCELLENT_MAX) return { key: "excellent" };
@@ -83,20 +84,5 @@
     return { key: "blunder" };
   }
 
-  // Теория chess.com отдаёт ходы как "e4+e6+Nf3" или "1.e4+e6+2.Nf3".
-  function parseLine(line) {
-    return String(line || "")
-      .split("+")
-      .map((t) => t.trim().replace(/^\d+\.+/, ""))
-      .filter((t) => t && !/^\d+$/.test(t))
-      .map((t) => t.replace(/^0-0-0$/, "O-O-O").replace(/^0-0$/, "O-O").replace(/[+#!?]/g, ""));
-  }
-
-  function sameLine(playedSans, moveList) {
-    const played = playedSans.map((san) => san.replace(/[+#!?]/g, ""));
-    const book = parseLine(moveList);
-    return played.length <= book.length && played.every((san, i) => san === book[i]);
-  }
-
-  return { scoreToCp, whiteCp, barPercent, formatEval, classify, sameLine, ICONS };
+  return { scoreToCp, whiteCp, barPercent, formatEval, classify, ICONS };
 });

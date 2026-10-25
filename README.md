@@ -1,6 +1,6 @@
 # ♞ FisherExtension
 
-[![version](https://img.shields.io/badge/version-0.3.0-2ea043?style=flat-square)](https://github.com/glassprincess/FisherExtension)
+[![version](https://img.shields.io/badge/version-0.3.1-2ea043?style=flat-square)](https://github.com/glassprincess/FisherExtension)
 [![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Firefox%2FZen-1f6feb?style=flat-square)](https://github.com/glassprincess/FisherExtension)
 [![license](https://img.shields.io/badge/project%20license-MIT-yellow?style=flat-square)](LICENSE)
 
@@ -82,7 +82,9 @@
 | упущенный шанс (мат или большой перевес) | `X` |
 | зевок | `??` |
 
-Теория берётся из панели `wc-eco-opening` chess.com, а не из встроенного дебютного справочника. Оценка ходов идёт по текущей партии: ходы, сделанные до включения режима или до открытия страницы, могут остаться без иконок — движок не пересчитывает всю партию задним числом.
+Теория берётся из встроенного дебютного справочника (3865 линий, 8058 позиций; [Lichess chess-openings](https://github.com/lichess-org/chess-openings), CC0). Позиция сверяется по FEN, поэтому транспозиции тоже считаются теорией. Книжный ход — только пока партия остаётся в одной из этих линий; дальше идут обычные оценки.
+
+Оценка идёт по текущей партии: ходы, сделанные до включения режима или до открытия страницы, могут остаться без иконок — движок не пересчитывает всю партию задним числом.
 
 Оценка и разбор считаются тем же движком и с теми же настройками, что и подсказка. При включённом режиме движок считает и на ходу бота — иначе полоса перевеса не обновлялась бы.
 
@@ -148,6 +150,7 @@ chess.com (content.js)  →  background.js  →  Native Messaging  →  chess_hi
 ```powershell
 node tests/chess.test.js
 node tests/review.test.js
+node tests/openings.test.js
 node tests/background.test.js
 node tests/bridge_smoke.js
 node tests/content.test.js   # нужен Playwright
@@ -164,6 +167,7 @@ bridge\         Rust Native Messaging мост
 bin\            готовый chess_hint_bridge.exe
 engine\         готовый Stockfish 19 + исходники + GPLv3
 install\        установка, удаление, пример engine_options
+tools\          генератор дебютного справочника
 tests\          Node-тесты и Playwright-тест
 ```
 
