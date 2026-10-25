@@ -8,18 +8,20 @@
   const modeNames = { time: "Время", depth: "Глубина", nodes: "Узлы" };
   const skillNames = { full: "полная", strong: "сильная", medium: "средняя", weak: "слабая" };
 
-  const st = await browser.storage.local.get(["mode", "limit", "skill", "level", "safeMode", "reviewEnabled"]);
+  const st = await browser.storage.local.get(["mode", "limit", "skill", "level", "safeMode", "hintEnabled", "reviewEnabled"]);
   let mode = MODES.includes(st.mode) ? st.mode : DEFAULT_MODE;
   let limit = has(LIMITS[mode], st.limit) ? st.limit
     : (mode === "time" && has(LIMITS.time, st.level) ? st.level : DEFAULT_LIMIT);
   let skill = has(SKILLS, st.skill) ? st.skill : DEFAULT_SKILL;
   let safeMode = st.safeMode !== false;
+  let hintEnabled = st.hintEnabled !== false;
   let reviewEnabled = st.reviewEnabled !== false;
 
   const modeEl = document.getElementById("mode");
   const limitEl = document.getElementById("limit");
   const skillEl = document.getElementById("skill");
   const safeEl = document.getElementById("safeMode");
+  const hintEl = document.getElementById("hintEnabled");
   const reviewEl = document.getElementById("reviewEnabled");
 
   const option = (value, text) => {
@@ -44,7 +46,7 @@
     skillEl.replaceChildren(...Object.entries(SKILLS).map(([k, v]) => option(k, `${skillNames[k] || k} (${v})`)));
     skillEl.value = skill;
   }
-  const save = () => browser.storage.local.set({ mode, limit, skill, safeMode, reviewEnabled });
+  const save = () => browser.storage.local.set({ mode, limit, skill, safeMode, hintEnabled, reviewEnabled });
 
   modeEl.addEventListener("change", () => {
     mode = modeEl.value;
@@ -55,9 +57,11 @@
   limitEl.addEventListener("change", () => { limit = limitEl.value; save(); });
   skillEl.addEventListener("change", () => { skill = skillEl.value; save(); });
   safeEl.addEventListener("change", () => { safeMode = safeEl.checked; save(); });
+  hintEl.addEventListener("change", () => { hintEnabled = hintEl.checked; save(); });
   reviewEl.addEventListener("change", () => { reviewEnabled = reviewEl.checked; save(); });
   fillModes(); fillLimits(); fillSkills();
   safeEl.checked = safeMode;
+  hintEl.checked = hintEnabled;
   reviewEl.checked = reviewEnabled;
 
   async function findPageStatus() {

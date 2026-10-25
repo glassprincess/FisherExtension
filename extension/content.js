@@ -8,7 +8,7 @@
 
   const POLL_MS = 300;
   const HEARTBEAT_MS = 5000;
-  const CONTENT_VERSION = "0.3.1"; // должно совпадать с version в manifest.json
+  const CONTENT_VERSION = "0.4.0"; // должно совпадать с version в manifest.json
   const NS = "http://www.w3.org/2000/svg";
   const ARROW_ID = "cbh-arrow";
   const REVIEW_ID = "cbh-review";
@@ -28,6 +28,7 @@
   let status = "неактивно";
   let lastArrow = null; // { uci, bottom }
   let safeMode = true;
+  let hintEnabled = true;
   let reviewEnabled = true;
   let gameLive = false;
   let lastBeat = 0;
@@ -465,7 +466,7 @@
         redrawReview(board);
         if (lastEval) drawEvalBar(board, lastEval.score, lastEval.turn, lastEval.bottom);
       }
-      if (lastArrow) {
+      if (hintEnabled && lastArrow) {
         if (!board.querySelector("#" + ARROW_ID)) drawArrow(board, lastArrow.uci, lastArrow.bottom);
         else showPromotion(board, lastArrow.uci);
       }
@@ -480,10 +481,10 @@
     if (!r.ok) { setGameLive(false); setStatus("ошибка разбора: " + r.error); return; }
     if (r.legalCount === 0) { setGameLive(false); setStatus("партия окончена"); return; }
     setGameLive(true);
-    const needHint = r.turn === bottom;
-    if (!needHint && !reviewEnabled) { setStatus("ход бота"); return; }
+    const showHint = hintEnabled && r.turn === bottom;
+    if (!showHint && !reviewEnabled) { setStatus(hintEnabled ? "ход бота" : "неактивно"); return; }
 
-    setStatus(needHint ? (r.pendingPromotion ? "превращение: считаю…" : "считаю…") : "оценка позиции…");
+    setStatus(showHint ? (r.pendingPromotion ? "превращение: считаю…" : "считаю…") : "оценка позиции…");
     let res;
     try {
       res = await browser.runtime.sendMessage({ type: "analyze", moves: r.uci });
@@ -497,7 +498,7 @@
         lastEval = { score: res.eval, turn: r.turn, bottom };
         drawEvalBar(board, res.eval, r.turn, bottom);
       }
-      if (needHint) {
+      if (showHint) {
         const legal = ChessLogic.legalMoves(r.state).map(ChessLogic.uci);
         if (!legal.includes(res.bestmove)) {
           setStatus("движок вернул нелегальный ход — игнорирую");
@@ -505,6 +506,8 @@
           drawArrow(board, res.bestmove, bottom);
           setStatus("подсказка: " + moveLabel(res.bestmove));
         }
+      } else if (r.turn === bottom) {
+        setStatus("разбор готов");
       } else {
         setStatus("ход бота");
       }
@@ -526,8 +529,9 @@
   });
 
   if (browser.storage && browser.storage.local && browser.storage.local.get) {
-    browser.storage.local.get(["safeMode", "reviewEnabled"]).then((st) => {
+    browser.storage.local.get(["safeMode", "hintEnabled", "reviewEnabled"]).then((st) => {
       if (typeof st.safeMode === "boolean") safeMode = st.safeMode;
+      if (typeof st.hintEnabled === "boolean") hintEnabled = st.hintEnabled;
       if (typeof st.reviewEnabled === "boolean") reviewEnabled = st.reviewEnabled;
     }).catch(() => {});
   }
@@ -535,11 +539,15 @@
   browser.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     if (changes.safeMode) safeMode = changes.safeMode.newValue !== false;
+    if (changes.hintEnabled) {
+      hintEnabled = changes.hintEnabled.newValue !== false;
+      if (!hintEnabled) clearArrow();
+    }
     if (changes.reviewEnabled) {
       reviewEnabled = changes.reviewEnabled.newValue !== false;
       if (!reviewEnabled) clearReview();
     }
-    if (changes.mode || changes.limit || changes.skill || changes.level || changes.safeMode || changes.reviewEnabled) settingsVersion++;
+    if (changes.mode || changes.limit || changes.skill || changes.level || changes.safeMode || changes.hintEnabled || changes.reviewEnabled) settingsVersion++;
   });
 
   browser.runtime.onMessage.addListener((msg, sender) => {

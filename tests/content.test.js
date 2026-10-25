@@ -49,27 +49,29 @@ let fail = 0;
 const ok = (c, m) => { if (!c) { fail++; console.log("FAIL:", m); } else console.log("ok:", m); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function scenario(browser, { url, flipped, reply, name, body, safeMode = true, waitMs = 1500 }) {
+async function scenario(browser, { url, flipped, reply, name, body, safeMode = true, hintEnabled = true, reviewEnabled = false, waitMs = 1500 }) {
   const page = await browser.newPage();
   await page.route("https://www.chess.com/**", (route) => route.fulfill({ contentType: "text/html", body: body || pageHtml(flipped) }));
-  await page.addInitScript(({ replyMsg, safeMode }) => {
+  await page.addInitScript(({ replyMsg, safeMode, hintEnabled, reviewEnabled }) => {
     window.__calls = [];
     window.__listeners = [];
     window.__reply = replyMsg;
     window.browser = {
       runtime: {
         id: "test-id",
+        getURL: (p) => "moz-extension://test/" + p,
         sendMessage: async (m) => { window.__calls.push(m); return window.__reply; },
         onMessage: { addListener: (f) => window.__listeners.push(f) },
       },
       storage: {
-        local: { get: async () => ({ safeMode, reviewEnabled: false }) },
+        local: { get: async () => ({ safeMode, hintEnabled, reviewEnabled }) },
         onChanged: { addListener() {} },
       },
     };
-  }, { replyMsg: reply, safeMode });
+  }, { replyMsg: reply, safeMode, hintEnabled, reviewEnabled });
   await page.goto(url);
   await page.addScriptTag({ content: chessJs });
+  await page.addScriptTag({ content: reviewJs });
   await page.addScriptTag({ content: openingsJs });
   await page.addScriptTag({ content: contentJs });
   await sleep(waitMs); // несколько циклов опроса (300 мс) + стабилизация
@@ -83,8 +85,12 @@ async function scenario(browser, { url, flipped, reply, name, body, safeMode = t
   const badge = await page.evaluate(() => document.querySelector("#cbh-arrow text")?.textContent || null);
   const promo = await page.evaluate(() => !!document.querySelector(".promotion-piece.cbh-promo"));
   const st = await page.evaluate(() => window.__listeners[0]({ type: "page-status" }, { id: "test-id" }));
+  const review = await page.evaluate(() => ({
+    bar: !!document.querySelector("#cbh-eval"),
+    icon: !!document.querySelector(".cbh-review-icon"),
+  }));
   await page.close();
-  return { calls, arrow, badge, promo, st };
+  return { calls, arrow, badge, promo, st, review };
 }
 
 (async () => {
@@ -267,6 +273,31 @@ async function scenario(browser, { url, flipped, reply, name, body, safeMode = t
     ok(review.badge && Math.abs(Number(review.badge.x) - 45) < 0.01 && Math.abs(Number(review.badge.y) - 37.7) < 0.01,
       "иконка стоит в правом верхнем углу поля d5");
     await page.close();
+  }
+  {
+    const r = await scenario(browser, {
+      url: "https://www.chess.com/play/computer/harry",
+      flipped: false,
+      reply: { bestmove: "c4d5", eval: { type: "cp", value: 30 } },
+      hintEnabled: false,
+      reviewEnabled: true,
+      waitMs: 2500,
+    });
+    ok(!r.arrow, "только разбор: стрелки подсказки нет");
+    ok(r.review.bar && r.review.icon, "только разбор: полоса и иконка хода есть");
+    ok(r.st.status === "разбор готов", "только разбор: статус без подсказки");
+  }
+  {
+    const r = await scenario(browser, {
+      url: "https://www.chess.com/play/computer/harry",
+      flipped: false,
+      reply: { bestmove: "c4d5" },
+      hintEnabled: false,
+      reviewEnabled: false,
+    });
+    ok(r.calls.filter((c) => c.type === "analyze").length === 0, "оба режима выключены: движок не запрашивается");
+    ok(!r.arrow && !r.review.bar, "оба режима выключены: ничего не рисуется");
+    ok(r.st.status === "неактивно", "оба режима выключены: статус неактивен");
   }
   {
     const r = await scenario(browser, {
