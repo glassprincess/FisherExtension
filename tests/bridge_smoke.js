@@ -63,7 +63,11 @@ async function request(id, obj) {
   send(Object.assign({ id }, obj));
   const r = await waitFor(id);
   if (!r.bestmove || !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(r.bestmove)) throw new Error("bad reply: " + JSON.stringify(r));
-  return r.bestmove;
+  if (!r.eval || !["cp", "mate"].includes(r.eval.type) || !Number.isFinite(r.eval.value)) {
+    throw new Error("no eval in reply: " + JSON.stringify(r));
+  }
+  if (!Number.isFinite(r.depth) || r.depth <= 0) throw new Error("no depth in reply: " + JSON.stringify(r));
+  return r;
 }
 
 (async () => {
@@ -74,11 +78,11 @@ async function request(id, obj) {
     [2, "depth", 5, 10],
     [3, "nodes", 10000, 5],
   ]) {
-    const best = await request(id, { moves: [], mode, value, skill });
-    console.log(`ok: ${mode} ${value}, skill ${skill} -> ${best}`);
+    const r = await request(id, { moves: [], mode, value, skill });
+    console.log(`ok: ${mode} ${value}, skill ${skill} -> ${r.bestmove} (${r.eval.type} ${r.eval.value}, depth ${r.depth})`);
   }
   const legacy = await request(4, { moves: [], movetime: 200 });
-  console.log("ok: legacy movetime -> " + legacy);
+  console.log(`ok: legacy movetime -> ${legacy.bestmove} (${legacy.eval.type} ${legacy.eval.value}, depth ${legacy.depth})`);
   const exited = await new Promise((resolve) => {
     const timer = setTimeout(() => resolve(false), 3000);
     child.once("exit", () => { clearTimeout(timer); resolve(true); });

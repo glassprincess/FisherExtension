@@ -68,7 +68,12 @@ function connect() {
       return;
     }
     if (typeof msg.bestmove === "string" && UCI_MOVE.test(msg.bestmove) && pending && msg.id === pending.id) {
-      finish({ bestmove: msg.bestmove });
+      const depth = Number.isFinite(msg.depth) ? msg.depth : 0;
+      const e = msg.eval;
+      const evalScore = e && typeof e === "object" && (e.type === "cp" || e.type === "mate") && Number.isFinite(e.value)
+        ? { type: e.type, value: e.value }
+        : null;
+      finish({ bestmove: msg.bestmove, depth, eval: evalScore });
     }
   });
   p.onDisconnect.addListener(() => {

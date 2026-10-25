@@ -12,6 +12,7 @@ catch (_) {
 
 const ext = path.join(__dirname, "..", "extension");
 const chessJs = fs.readFileSync(path.join(ext, "chess.js"), "utf8");
+const reviewJs = fs.readFileSync(path.join(ext, "review.js"), "utf8");
 const contentJs = fs.readFileSync(path.join(ext, "content.js"), "utf8");
 const board = fs.readFileSync(path.join(__dirname, "fixtures/board-after-10-plies.html"), "utf8");
 const sidebar = fs.readFileSync(path.join(__dirname, "fixtures/sidebar.html"), "utf8");
@@ -61,7 +62,7 @@ async function scenario(browser, { url, flipped, reply, name, body, safeMode = t
         onMessage: { addListener: (f) => window.__listeners.push(f) },
       },
       storage: {
-        local: { get: async () => ({ safeMode }) },
+        local: { get: async () => ({ safeMode, reviewEnabled: false }) },
         onChanged: { addListener() {} },
       },
     };
@@ -119,7 +120,7 @@ async function scenario(browser, { url, flipped, reply, name, body, safeMode = t
           onMessage: { addListener: (f) => window.__listeners.push(f) },
         },
         storage: {
-          local: { get: async () => ({ safeMode: true }) },
+          local: { get: async () => ({ safeMode: true, reviewEnabled: false }) },
           onChanged: { addListener() {} },
         },
       };
@@ -209,6 +210,55 @@ async function scenario(browser, { url, flipped, reply, name, body, safeMode = t
     const listBody = pageHtml(false, board, sidebar.replaceAll("wc-simple-move-list", "wc-move-list"));
     const r = await scenario(browser, { url: "https://www.chess.com/analysis", flipped: false, reply: { bestmove: "c4d5" }, body: listBody, safeMode: false });
     ok(r.calls.length === 1 && r.calls[0].type === "analyze", "сейфмод выключен: читаем и wc-move-list");
+  }
+  {
+    const page = await browser.newPage();
+    await page.route("https://www.chess.com/**", (route) => route.fulfill({ contentType: "text/html", body: pageHtml(false) }));
+    await page.addInitScript(() => {
+      window.__calls = [];
+      window.__listeners = [];
+      window.browser = {
+        runtime: {
+          id: "test-id",
+          getURL: (p) => "moz-extension://test/" + p,
+          sendMessage: async (m) => {
+            window.__calls.push(m);
+            return m.moves.length === 9
+              ? { bestmove: "d7d5", depth: 12, eval: { type: "cp", value: 0 } }
+              : { bestmove: "c4d5", depth: 14, eval: { type: "cp", value: 30 } };
+          },
+          onMessage: { addListener: (f) => window.__listeners.push(f) },
+        },
+        storage: {
+          local: { get: async () => ({ safeMode: true, reviewEnabled: true }) },
+          onChanged: { addListener() {} },
+        },
+      };
+    });
+    await page.goto("https://www.chess.com/play/computer/harry");
+    await page.addScriptTag({ content: chessJs });
+    await page.addScriptTag({ content: reviewJs });
+    await page.addScriptTag({ content: contentJs });
+    await sleep(2500);
+    const review = await page.evaluate(() => {
+      const icon = document.querySelector(".cbh-review-icon");
+      const rects = [...document.querySelectorAll("#cbh-review rect")];
+      const white = document.querySelector("#cbh-eval .cbh-eval-white");
+      return {
+        calls: window.__calls.map((c) => c.moves.length),
+        icon: icon ? { file: icon.getAttribute("src"), title: icon.title } : null,
+        colors: rects.map((r) => r.getAttribute("fill")),
+        rects: rects.length,
+        label: document.querySelector("#cbh-eval .cbh-eval-label")?.textContent || null,
+        whiteHeight: white ? white.style.height : null,
+      };
+    });
+    ok(review.calls.includes(10) && review.calls.includes(9), "оценка ходов: считаются текущая и предыдущая позиции");
+    ok(review.label === "+0.3", "полоса перевеса показывает оценку с точки зрения белых");
+    ok(review.whiteHeight === "55%", "белая часть полосы заполнена по оценке");
+    ok(review.icon && review.icon.file.endsWith("analysis-icons/book.svg"), "книжный ход получил иконку из панели теории");
+    ok(review.rects === 2 && review.colors.every((c) => c === "#a88865"), "поля хода окрашены цветом иконки");
+    await page.close();
   }
   {
     const r = await scenario(browser, {

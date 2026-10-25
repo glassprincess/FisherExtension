@@ -306,8 +306,52 @@ fn reply_err(id: i64, msg: &str) -> String {
     format!("{{\"id\":{},\"error\":\"{}\"}}", id, json_escape(msg))
 }
 
-fn reply_best(id: i64, mv: &str) -> String {
-    format!("{{\"id\":{},\"bestmove\":\"{}\"}}", id, mv)
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Score {
+    mate: bool,
+    value: i64,
+}
+
+/// Разбирает строку `info ... depth N ... score cp X|mate Y ...`.
+/// Оценка — от лица того, чей ход; остальные поля игнорируются.
+fn parse_score(line: &str) -> Option<(u32, Score)> {
+    let mut it = line.split_whitespace();
+    let mut depth = 0u32;
+    let mut score = None;
+    while let Some(tok) = it.next() {
+        match tok {
+            "depth" => {
+                if let Some(n) = it.next().and_then(|s| s.parse::<u32>().ok()) {
+                    depth = n;
+                }
+            }
+            "score" => {
+                let kind = it.next()?;
+                let value = it.next()?.parse::<i64>().ok()?;
+                score = match kind {
+                    "cp" => Some((false, value)),
+                    "mate" => Some((true, value)),
+                    _ => None,
+                };
+            }
+            _ => {}
+        }
+    }
+    score.map(|(mate, value)| (depth, Score { mate, value }))
+}
+
+fn reply_best(id: i64, mv: &str, eval: Option<(u32, Score)>) -> String {
+    match eval {
+        None => format!("{{\"id\":{},\"bestmove\":\"{}\"}}", id, mv),
+        Some((depth, s)) => format!(
+            "{{\"id\":{},\"bestmove\":\"{}\",\"depth\":{},\"eval\":{{\"type\":\"{}\",\"value\":{}}}}}",
+            id,
+            mv,
+            depth,
+            if s.mate { "mate" } else { "cp" },
+            s.value
+        ),
+    }
 }
 
 fn write_msg(s: &str) -> io::Result<()> {
@@ -500,6 +544,7 @@ fn main() {
     // 0 — ждём uciok, 1 — ждём readyok, 2 — готов
     let mut stage = 0;
     let mut searching: Option<i64> = None;
+    let mut last_score: Option<(u32, Score)> = None;
     let mut stop_sent = false;
     let mut pending: Option<Request> = None;
 
@@ -518,6 +563,7 @@ fn main() {
                     }
                 } else {
                     searching = Some(req.id);
+                    last_score = None;
                     if !start_search(&mut ein, &req) {
                         break;
                     }
@@ -540,24 +586,31 @@ fn main() {
                     let _ = write_msg("{\"type\":\"ready\"}");
                     if let Some(req) = pending.take() {
                         searching = Some(req.id);
+                        last_score = None;
                         if !start_search(&mut ein, &req) {
                             break;
                         }
                     }
+                } else if stage == 2 && line.starts_with("info ") {
+                    if let Some(s) = parse_score(line) {
+                        last_score = Some(s);
+                    }
                 } else if stage == 2 && line.starts_with("bestmove") {
                     if let Some(id) = searching.take() {
+                        let eval = last_score.take();
                         if stop_sent {
                             stop_sent = false; // результат остановленного поиска отбрасываем
                         } else {
                             let mv = line.split_whitespace().nth(1).unwrap_or("");
                             if valid_uci_move(mv) {
-                                let _ = write_msg(&reply_best(id, mv));
+                                let _ = write_msg(&reply_best(id, mv, eval));
                             } else {
                                 let _ = write_msg(&reply_err(id, "ходов нет"));
                             }
                         }
                         if let Some(req) = pending.take() {
                             searching = Some(req.id);
+                            last_score = None;
                             if !start_search(&mut ein, &req) {
                                 break;
                             }
@@ -653,6 +706,38 @@ mod tests {
     fn option_validation() {
         assert!(option_name_ok("Threads") && option_value_ok("4"));
         assert!(!option_name_ok("Threads\nquit") && !option_value_ok("4\nquit"));
+    }
+
+    #[test]
+    fn parses_engine_score() {
+        assert_eq!(
+            parse_score("info depth 18 seldepth 25 multipv 1 score cp 35 nodes 123 pv e2e4 e7e5"),
+            Some((18, Score { mate: false, value: 35 }))
+        );
+        assert_eq!(
+            parse_score("info depth 12 score mate -2 pv e2e4"),
+            Some((12, Score { mate: true, value: -2 }))
+        );
+        assert_eq!(
+            parse_score("info depth 5 score cp 20 upperbound nodes 900"),
+            Some((5, Score { mate: false, value: 20 }))
+        );
+        assert_eq!(parse_score("info depth 3 currmove e2e4"), None);
+        assert_eq!(parse_score("info score cp nope"), None);
+        assert_eq!(parse_score("bestmove e2e4"), None);
+    }
+
+    #[test]
+    fn reply_includes_eval() {
+        assert_eq!(reply_best(7, "e2e4", None), "{\"id\":7,\"bestmove\":\"e2e4\"}");
+        assert_eq!(
+            reply_best(7, "e2e4", Some((18, Score { mate: false, value: 35 }))),
+            "{\"id\":7,\"bestmove\":\"e2e4\",\"depth\":18,\"eval\":{\"type\":\"cp\",\"value\":35}}"
+        );
+        assert_eq!(
+            reply_best(8, "d1h5", Some((9, Score { mate: true, value: 3 }))),
+            "{\"id\":8,\"bestmove\":\"d1h5\",\"depth\":9,\"eval\":{\"type\":\"mate\",\"value\":3}}"
+        );
     }
 
     #[test]

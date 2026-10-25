@@ -8,17 +8,19 @@
   const modeNames = { time: "Время", depth: "Глубина", nodes: "Узлы" };
   const skillNames = { full: "полная", strong: "сильная", medium: "средняя", weak: "слабая" };
 
-  const st = await browser.storage.local.get(["mode", "limit", "skill", "level", "safeMode"]);
+  const st = await browser.storage.local.get(["mode", "limit", "skill", "level", "safeMode", "reviewEnabled"]);
   let mode = MODES.includes(st.mode) ? st.mode : DEFAULT_MODE;
   let limit = has(LIMITS[mode], st.limit) ? st.limit
     : (mode === "time" && has(LIMITS.time, st.level) ? st.level : DEFAULT_LIMIT);
   let skill = has(SKILLS, st.skill) ? st.skill : DEFAULT_SKILL;
   let safeMode = st.safeMode !== false;
+  let reviewEnabled = st.reviewEnabled !== false;
 
   const modeEl = document.getElementById("mode");
   const limitEl = document.getElementById("limit");
   const skillEl = document.getElementById("skill");
   const safeEl = document.getElementById("safeMode");
+  const reviewEl = document.getElementById("reviewEnabled");
 
   const option = (value, text) => {
     const o = document.createElement("option");
@@ -42,7 +44,7 @@
     skillEl.replaceChildren(...Object.entries(SKILLS).map(([k, v]) => option(k, `${skillNames[k] || k} (${v})`)));
     skillEl.value = skill;
   }
-  const save = () => browser.storage.local.set({ mode, limit, skill, safeMode });
+  const save = () => browser.storage.local.set({ mode, limit, skill, safeMode, reviewEnabled });
 
   modeEl.addEventListener("change", () => {
     mode = modeEl.value;
@@ -53,8 +55,10 @@
   limitEl.addEventListener("change", () => { limit = limitEl.value; save(); });
   skillEl.addEventListener("change", () => { skill = skillEl.value; save(); });
   safeEl.addEventListener("change", () => { safeMode = safeEl.checked; save(); });
+  reviewEl.addEventListener("change", () => { reviewEnabled = reviewEl.checked; save(); });
   fillModes(); fillLimits(); fillSkills();
   safeEl.checked = safeMode;
+  reviewEl.checked = reviewEnabled;
 
   async function findPageStatus() {
     const currentTab = await browser.tabs.getCurrent().catch(() => null);

@@ -22,6 +22,11 @@ Chess.com is a trademark of Chess.com, LLC. This project is not affiliated with 
 The test fixtures under `tests/fixtures/` contain small fragments of the chess.com DOM used only to test
 interoperability with the site.
 
+The analysis icons under `extension/analysis-icons/` are SVG assets extracted from chess.com
+(`wc-eco-opening` / analysis UI). They are included only so the extension can draw the same move
+annotations on chess.com pages. They are not covered by this project's MIT license and remain the
+property of Chess.com, LLC.
+
 ## Project code
 
 The extension, bridge source, tests and install scripts are licensed under the MIT License; see `LICENSE`.

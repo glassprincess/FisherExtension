@@ -41,7 +41,7 @@ async function analyzeWith(storage, moves = []) {
   for (let i = 0; i < 100 && bg.state.sent.length === 0; i++) await delay(1);
   const req = bg.state.sent[0];
   bg.state.portMessage({ type: "ready" });
-  bg.state.portMessage({ id: req.id, bestmove: "e2e4" });
+  bg.state.portMessage({ id: req.id, bestmove: "e2e4", depth: 18, eval: { type: "cp", value: 35 } });
   const res = await p;
   return { req, res };
 }
@@ -58,6 +58,7 @@ async function analyzeWith(storage, moves = []) {
     const { req, res } = await analyzeWith({});
     ok(req.mode === "time" && req.value === 1000 && req.skill === 20, "по умолчанию: время 1000 мс, Skill 20");
     ok(res.bestmove === "e2e4", "ответ моста доходит до content");
+    ok(res.depth === 18 && res.eval.type === "cp" && res.eval.value === 35, "оценка и глубина доходят до content");
   }
   {
     const { req } = await analyzeWith({ level: "max" });

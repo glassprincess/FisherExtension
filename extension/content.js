@@ -8,9 +8,14 @@
 
   const POLL_MS = 300;
   const HEARTBEAT_MS = 5000;
-  const CONTENT_VERSION = "0.2.4"; // должно совпадать с version в manifest.json
+  const CONTENT_VERSION = "0.3.0"; // должно совпадать с version в manifest.json
   const NS = "http://www.w3.org/2000/svg";
   const ARROW_ID = "cbh-arrow";
+  const REVIEW_ID = "cbh-review";
+  const EVAL_ID = "cbh-eval";
+  const REVIEW_ICON = "cbh-review-icon";
+  const ICON_DIR = "analysis-icons/";
+  const CACHE_MAX = 300;
   const STYLE_ID = "cbh-style";
   const PROMO_CLASS = "cbh-promo";
 
@@ -22,8 +27,13 @@
   let status = "неактивно";
   let lastArrow = null; // { uci, bottom }
   let safeMode = true;
+  let reviewEnabled = true;
   let gameLive = false;
   let lastBeat = 0;
+  let reviewMoves = []; // по полуходам: { san, uci, key } | undefined
+  let lastReview = null; // { uci, key, bottom }
+  let lastEval = null; // { score, turn, bottom }
+  const evalCache = new Map(); // "uci uci ..." -> { bestmove, eval }
 
   const isChess = () => location.hostname === "www.chess.com";
   const isBotPage = () => isChess() && /^\/play\/computer(\/|$)/.test(location.pathname);
@@ -61,7 +71,12 @@
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement("style");
     style.id = STYLE_ID;
-    style.textContent = `.promotion-piece.${PROMO_CLASS}{outline:3px solid #22c55e;outline-offset:-3px;box-shadow:0 0 0 3px rgba(34,197,94,.55);border-radius:6px}`;
+    style.textContent = `.promotion-piece.${PROMO_CLASS}{outline:3px solid #22c55e;outline-offset:-3px;box-shadow:0 0 0 3px rgba(34,197,94,.55);border-radius:6px}`
+      + `.${REVIEW_ICON}{width:13px;height:13px;margin-left:2px;vertical-align:-2px;display:inline-block;pointer-events:none}`
+      + `#${EVAL_ID}{position:fixed;z-index:2147483000;pointer-events:none;font:700 10px/1 system-ui,sans-serif;color:#fff}`
+      + `#${EVAL_ID} .cbh-eval-bar{position:relative;width:12px;height:100%;box-sizing:border-box;background:#2b2b2b;border:1px solid rgba(255,255,255,.35);border-radius:4px;overflow:hidden}`
+      + `#${EVAL_ID} .cbh-eval-white{position:absolute;left:0;right:0;background:#f2f2f2}`
+      + `#${EVAL_ID} .cbh-eval-label{position:absolute;left:50%;transform:translateX(-50%);white-space:nowrap;text-shadow:0 1px 3px #000,0 0 2px #000}`;
     (document.head || document.documentElement).appendChild(style);
   }
 
@@ -100,10 +115,14 @@
     return s;
   }
 
+  function moveList(board) {
+    const lists = [...document.querySelectorAll("wc-simple-move-list, wc-move-list")];
+    return lists.find((el) => !board.id || el.getAttribute("board-id") === board.id) || lists[0] || null;
+  }
+
   /** Список ходов (SAN) из панели chess.com или null, если панель ещё не отрисована. */
   function readSan(board) {
-    const lists = [...document.querySelectorAll("wc-simple-move-list, wc-move-list")];
-    const list = lists.find((el) => !board.id || el.getAttribute("board-id") === board.id) || lists[0];
+    const list = moveList(board);
     if (!list) return null;
     const out = [];
     for (const node of list.querySelectorAll(".node.main-line-ply")) {
@@ -195,6 +214,200 @@
     showPromotion(board, uci);
   }
 
+  // ─────────────────────── оценка ходов ───────────────────────
+
+  const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+  const cacheKey = (moves) => moves.join(" ");
+
+  function cachePut(moves, rec) {
+    evalCache.set(cacheKey(moves), rec);
+    if (evalCache.size > CACHE_MAX) evalCache.delete(evalCache.keys().next().value);
+  }
+
+  async function ensurePosition(moves) {
+    const key = cacheKey(moves);
+    const hit = evalCache.get(key);
+    if (hit) return hit;
+    let res;
+    try {
+      res = await browser.runtime.sendMessage({ type: "analyze", moves });
+    } catch (_) {
+      return null;
+    }
+    if (!res || !res.bestmove || !res.eval) return null;
+    const rec = { bestmove: res.bestmove, eval: res.eval };
+    cachePut(moves, rec);
+    return rec;
+  }
+
+  /** Теория из панели chess.com: "e4+e6+Nf3" или "". */
+  function bookLine(board) {
+    const panels = [...document.querySelectorAll("wc-eco-opening")];
+    const panel = panels.find((el) => !el.getAttribute("board-id") || el.getAttribute("board-id") === board.id) || panels[0];
+    if (!panel) return "";
+    const direct = panel.getAttribute("moveList") || panel.getAttribute("movelist");
+    if (direct) return direct;
+    const a = panel.querySelector('a[href*="moveList="]');
+    const m = a && /[?&]moveList=([^&]+)/.exec(a.getAttribute("href") || "");
+    if (!m) return "";
+    try { return decodeURIComponent(m[1]); } catch (_) { return m[1]; }
+  }
+
+  /** Жертва: лучший ход ставит фигуру под бой, а взятие не окупает её. */
+  function isSacrifice(sans, uci, i, finalState) {
+    const before = ChessLogic.replay(sans.slice(0, i));
+    const after = i === sans.length - 1 ? finalState : ChessLogic.replay(sans.slice(0, i + 1)).state;
+    if (!before.ok || !after) return false;
+    const to = uci[i].charCodeAt(2) - 97 + (Number(uci[i][3]) - 1) * 8;
+    const piece = after.board[to];
+    if (!piece || piece.toLowerCase() === "k") return false;
+    const us = piece === piece.toUpperCase() ? "w" : "b";
+    if (!ChessLogic.attacked(after.board, to, us === "w" ? "b" : "w")) return false;
+    const victim = before.state.board[to];
+    const gain = victim === "." ? 0 : PIECE_VALUE[victim.toLowerCase()] || 0;
+    const value = PIECE_VALUE[piece.toLowerCase()] || 0;
+    return value >= 3 && gain < value;
+  }
+
+  function classifyAt(sans, uci, i, finalState, book) {
+    const before = evalCache.get(cacheKey(uci.slice(0, i)));
+    const after = evalCache.get(cacheKey(uci.slice(0, i + 1)));
+    if (!before || !after || !uci[i]) return false;
+    const cls = MoveReview.classify({
+      played: uci[i],
+      bestmove: before.bestmove,
+      before: before.eval,
+      after: after.eval,
+      book: !!book && MoveReview.sameLine(sans.slice(0, i + 1), book),
+      sacrifice: isSacrifice(sans, uci, i, finalState),
+    });
+    if (!cls) return false;
+    reviewMoves[i] = { san: sans[i], uci: uci[i], key: cls.key };
+    return true;
+  }
+
+  function alignReviews(sans) {
+    const stale = sans.length < reviewMoves.length
+      || reviewMoves.some((m, i) => m && m.san !== sans[i]);
+    if (!stale) return;
+    reviewMoves = [];
+    lastReview = null;
+    lastEval = null;
+    evalCache.clear();
+    const svg = document.getElementById(REVIEW_ID);
+    if (svg) svg.remove();
+  }
+
+  function decorateMoves(board) {
+    const list = moveList(board);
+    if (!list) return;
+    const nodes = [...list.querySelectorAll(".node.main-line-ply")];
+    nodes.forEach((node, i) => {
+      const old = node.querySelector("." + REVIEW_ICON);
+      const rec = reviewMoves[i];
+      const icon = rec && MoveReview.ICONS[rec.key];
+      if (!icon) { if (old) old.remove(); return; }
+      if (old && old.dataset.key === rec.key) return;
+      if (old) old.remove();
+      const img = document.createElement("img");
+      img.className = REVIEW_ICON;
+      img.dataset.key = rec.key;
+      img.src = browser.runtime.getURL(ICON_DIR + icon.file);
+      img.alt = "";
+      img.title = icon.label;
+      img.draggable = false;
+      ensureStyle();
+      (node.querySelector(".node-highlight-content") || node).after(img);
+    });
+  }
+
+  function reviewOverlay(board) {
+    let svg = board.querySelector("#" + REVIEW_ID);
+    if (!svg) {
+      svg = document.createElementNS(NS, "svg");
+      svg.id = REVIEW_ID;
+      svg.setAttribute("viewBox", "0 0 100 100");
+      svg.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:1;";
+      board.insertBefore(svg, board.firstChild);
+    }
+    return svg;
+  }
+
+  /** Поля последнего оценённого хода красим цветом его иконки. */
+  function redrawReview(board) {
+    const svg = board.querySelector("#" + REVIEW_ID);
+    if (!lastReview) { if (svg) svg.remove(); return; }
+    const color = MoveReview.ICONS[lastReview.key].color;
+    const layer = svg || reviewOverlay(board);
+    layer.replaceChildren();
+    if (!lastReview.bottom) return;
+    const uci = lastReview.uci;
+    for (const [f, r] of [[uci.charCodeAt(0) - 97, +uci[1] - 1], [uci.charCodeAt(2) - 97, +uci[3] - 1]]) {
+      const x = lastReview.bottom === "w" ? f : 7 - f;
+      const y = lastReview.bottom === "w" ? 7 - r : r;
+      const rect = document.createElementNS(NS, "rect");
+      rect.setAttribute("x", x * 12.5); rect.setAttribute("y", y * 12.5);
+      rect.setAttribute("width", 12.5); rect.setAttribute("height", 12.5);
+      rect.setAttribute("fill", color); rect.setAttribute("fill-opacity", "0.5");
+      layer.appendChild(rect);
+    }
+  }
+
+  /** Полоса перевеса слева от доски: белое снизу, чёрное сверху (при перевёрнутой доске — наоборот). */
+  function drawEvalBar(board, score, turn, bottom) {
+    const rect = board.getBoundingClientRect();
+    if (rect.width < 120 || rect.height < 120) return;
+    let el = document.getElementById(EVAL_ID);
+    if (!el) {
+      el = document.createElement("div");
+      el.id = EVAL_ID;
+      el.innerHTML = '<div class="cbh-eval-bar"><div class="cbh-eval-white"></div></div><div class="cbh-eval-label"></div>';
+      document.body.appendChild(el);
+    }
+    const cp = MoveReview.whiteCp(score, turn);
+    const white = el.querySelector(".cbh-eval-white");
+    white.style.height = MoveReview.barPercent(cp) + "%";
+    white.style.top = bottom === "b" ? "0" : "auto";
+    white.style.bottom = bottom === "b" ? "auto" : "0";
+    const label = el.querySelector(".cbh-eval-label");
+    label.textContent = MoveReview.formatEval(score, turn);
+    label.style.top = bottom === "b" ? "auto" : "-16px";
+    label.style.bottom = bottom === "b" ? "-16px" : "auto";
+    el.style.top = rect.top + "px";
+    el.style.height = rect.height + "px";
+    el.style.left = (rect.left >= 24 ? rect.left - 18 : rect.left + 2) + "px";
+  }
+
+  function clearReview() {
+    reviewMoves = [];
+    lastReview = null;
+    lastEval = null;
+    evalCache.clear();
+    const bar = document.getElementById(EVAL_ID);
+    if (bar) bar.remove();
+    const svg = document.getElementById(REVIEW_ID);
+    if (svg) svg.remove();
+    for (const el of document.querySelectorAll("." + REVIEW_ICON)) el.remove();
+  }
+
+  async function reviewPosition(board, sans, r, bottom, mySeq) {
+    const book = bookLine(board);
+    for (let i = 0; i < sans.length; i++) {
+      if (!reviewMoves[i]) classifyAt(sans, r.uci, i, r.state, book);
+    }
+    const last = sans.length - 1;
+    if (last >= 0 && !reviewMoves[last]) {
+      const prev = await ensurePosition(r.uci.slice(0, last));
+      if (mySeq !== seq) return;
+      if (prev) classifyAt(sans, r.uci, last, r.state, book);
+    }
+    if (reviewMoves[last]) lastReview = { uci: r.uci[last], key: reviewMoves[last].key, bottom };
+    decorateMoves(board);
+    redrawReview(board);
+  }
+
+  // ───────────────────────────────────────────────────────────
+
   function deactivate() {
     setGameLive(false);
     active = false;
@@ -202,6 +415,7 @@
     pendingSig = "";
     handledSig = "";
     clearArrow();
+    clearReview();
     setStatus("неактивно");
   }
 
@@ -213,12 +427,18 @@
 
     const sans = readSan(board);
     if (!sans) { setGameLive(false); setStatus("жду список ходов"); return; }
+    if (reviewEnabled) alignReviews(sans);
     const bottom = bottomColor(board);
     const sig = sans.join(" ") + "|" + bottom + "|" + settingsVersion;
     beat();
 
     if (sig !== pendingSig) { pendingSig = sig; return; } // ждём, пока позиция перестанет меняться
     if (sig === handledSig) {
+      if (reviewEnabled) {
+        decorateMoves(board);
+        redrawReview(board);
+        if (lastEval) drawEvalBar(board, lastEval.score, lastEval.turn, lastEval.bottom);
+      }
       if (lastArrow) {
         if (!board.querySelector("#" + ARROW_ID)) drawArrow(board, lastArrow.uci, lastArrow.bottom);
         else showPromotion(board, lastArrow.uci);
@@ -234,9 +454,10 @@
     if (!r.ok) { setGameLive(false); setStatus("ошибка разбора: " + r.error); return; }
     if (r.legalCount === 0) { setGameLive(false); setStatus("партия окончена"); return; }
     setGameLive(true);
-    if (r.turn !== bottom) { setStatus("ход бота"); return; }
+    const needHint = r.turn === bottom;
+    if (!needHint && !reviewEnabled) { setStatus("ход бота"); return; }
 
-    setStatus(r.pendingPromotion ? "превращение: считаю…" : "считаю…");
+    setStatus(needHint ? (r.pendingPromotion ? "превращение: считаю…" : "считаю…") : "оценка позиции…");
     let res;
     try {
       res = await browser.runtime.sendMessage({ type: "analyze", moves: r.uci });
@@ -245,10 +466,23 @@
     }
     if (mySeq !== seq) return; // позиция уже изменилась
     if (res && res.bestmove) {
-      const legal = ChessLogic.legalMoves(r.state).map(ChessLogic.uci);
-      if (!legal.includes(res.bestmove)) { setStatus("движок вернул нелегальный ход — игнорирую"); return; }
-      drawArrow(board, res.bestmove, bottom);
-      setStatus("подсказка: " + moveLabel(res.bestmove));
+      if (reviewEnabled && res.eval) {
+        cachePut(r.uci, { bestmove: res.bestmove, eval: res.eval });
+        lastEval = { score: res.eval, turn: r.turn, bottom };
+        drawEvalBar(board, res.eval, r.turn, bottom);
+      }
+      if (needHint) {
+        const legal = ChessLogic.legalMoves(r.state).map(ChessLogic.uci);
+        if (!legal.includes(res.bestmove)) {
+          setStatus("движок вернул нелегальный ход — игнорирую");
+        } else {
+          drawArrow(board, res.bestmove, bottom);
+          setStatus("подсказка: " + moveLabel(res.bestmove));
+        }
+      } else {
+        setStatus("ход бота");
+      }
+      if (reviewEnabled) await reviewPosition(board, sans, r, bottom, mySeq);
     } else if (res && res.cancelled) {
       handledSig = ""; // мост выгрузился; на следующем тике попробуем снова
     } else {
@@ -266,15 +500,20 @@
   });
 
   if (browser.storage && browser.storage.local && browser.storage.local.get) {
-    browser.storage.local.get(["safeMode"]).then((st) => {
+    browser.storage.local.get(["safeMode", "reviewEnabled"]).then((st) => {
       if (typeof st.safeMode === "boolean") safeMode = st.safeMode;
+      if (typeof st.reviewEnabled === "boolean") reviewEnabled = st.reviewEnabled;
     }).catch(() => {});
   }
 
   browser.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     if (changes.safeMode) safeMode = changes.safeMode.newValue !== false;
-    if (changes.mode || changes.limit || changes.skill || changes.level || changes.safeMode) settingsVersion++;
+    if (changes.reviewEnabled) {
+      reviewEnabled = changes.reviewEnabled.newValue !== false;
+      if (!reviewEnabled) clearReview();
+    }
+    if (changes.mode || changes.limit || changes.skill || changes.level || changes.safeMode || changes.reviewEnabled) settingsVersion++;
   });
 
   browser.runtime.onMessage.addListener((msg, sender) => {

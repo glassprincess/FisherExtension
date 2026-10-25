@@ -292,5 +292,5 @@
     };
   }
 
-  return { startState, fromFen, toFen, legalMoves, apply, uci, findMove, replay, perft, sqName };
+  return { startState, fromFen, toFen, legalMoves, apply, uci, findMove, replay, perft, sqName, attacked };
 });
